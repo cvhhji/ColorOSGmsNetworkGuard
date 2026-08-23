@@ -31,7 +31,7 @@ public final class MainHook implements IXposedHookLoadPackage {
  @Override public void handleLoadPackage(XC_LoadPackage.LoadPackageParam p){
   if(!HOOK_SCOPE.contains(p.packageName))return;
   if(ANDROID.equals(p.packageName)){hookWriter(p.classLoader,"android.net.OplusNetworkingControlManager");hookWriter(p.classLoader,"android.net.IOplusNetworkingControlManager$Stub$Proxy");hookSystemServer(p.classLoader);}
-  if(PHONE_MANAGER.equals(p.packageName)||PHONE.equals(p.packageName)||TELECOM.equals(p.packageName))neutralizeFraudCode(p.classLoader,p.packageName,p.appInfo);
+  if(PHONE_MANAGER.equals(p.packageName)||PHONE.equals(p.packageName)||TELECOM.equals(p.packageName))neutralizeFraudCode(p.classLoader,p.packageName,(android.content.pm.ApplicationInfo)p.appInfo);
   if(NATIONAL_ANTI_FRAUD.equals(p.packageName))blockDedicatedAntiFraudApp(p.classLoader);
  }
  private static void hookSystemServer(ClassLoader cl){try{XposedHelpers.findAndHookMethod("com.android.server.SystemServer",cl,"startOtherServices",new XC_MethodHook(){@Override protected void afterHookedMethod(MethodHookParam q){startEventRepair((Context)XposedHelpers.getObjectField(q.thisObject,"mSystemContext"));}});}catch(Throwable t){log("SystemServer hook",t);}}
