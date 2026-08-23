@@ -17,3 +17,10 @@ Hook `OplusNetworkingControlManager.setUidPolicy(uid, policy)`，将目标 UID �
 ```sh
 for c in $(pm dump com.coloros.phonemanager | sed -n '/disabledComponents:/,/enabledComponents:/p' | grep aivoicecalldetect); do pm enable "com.coloros.phonemanager/$c"; done
 ```
+
+
+## Compatibility and releases
+
+- Declares LSPosed API target **102**.
+- Every successful `main` build automatically increments the patch version, creates a GitHub Release, and uploads an installable APK.
+- Releases are signed with the repository's reproducible debug signing configuration; upgrading requires the same signing identity.

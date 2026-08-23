@@ -1,5 +1,6 @@
 plugins { id 'com.android.application' }
 android { namespace 'io.github.cvhhji.gmsnetguard'; compileSdk 35
- defaultConfig { applicationId 'io.github.cvhhji.gmsnetguard'; minSdk 30; targetSdk 35; versionCode 2; versionName '1.1.0' }
+ defaultConfig { applicationId 'io.github.cvhhji.gmsnetguard'; minSdk 30; targetSdk 35; versionCode (project.findProperty('VERSION_CODE') ?: '2').toInteger(); versionName (project.findProperty('VERSION_NAME') ?: '1.1.0') }
+ buildTypes { release { signingConfig signingConfigs.debug; minifyEnabled false } }
 }
-dependencies { compileOnly project(':xposed-stubs') }
+dependencies { compileOnly 'io.github.libxposed:api:102.0.0' }

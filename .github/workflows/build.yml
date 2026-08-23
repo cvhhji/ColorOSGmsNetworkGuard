@@ -1,14 +1,72 @@
-name: Build APK
-on: [push, workflow_dispatch]
+name: Build and Release APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
 jobs:
- build:
-  runs-on: ubuntu-latest
-  steps:
-   - uses: actions/checkout@v4
-   - uses: actions/setup-java@v4
-     with: {distribution: temurin, java-version: '17'}
-   - uses: gradle/actions/setup-gradle@v4
-     with: {gradle-version: '8.10.2'}
-   - run: gradle :app:assembleDebug --stacktrace
-   - uses: actions/upload-artifact@v4
-     with: {name: ColorOSGmsNetworkGuard-debug, path: app/build/outputs/apk/debug/app-debug.apk}
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Calculate next version
+        id: version
+        shell: bash
+        run: |
+          latest="$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)"
+          if [[ -n "$latest" ]]; then
+            base="${latest#v}"
+          else
+            base="$(sed -n "s/.*versionName '\([^']*\)'.*/\1/p" app/build.gradle)"
+          fi
+          IFS=. read -r major minor patch <<< "$base"
+          patch=$((patch + 1))
+          version="$major.$minor.$patch"
+          code=$((GITHUB_RUN_NUMBER + 2))
+          echo "name=$version" >> "$GITHUB_OUTPUT"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build installable release APK
+        run: |
+          gradle :app:assembleRelease --stacktrace \
+            -PVERSION_NAME=${{ steps.version.outputs.name }} \
+            -PVERSION_CODE=${{ steps.version.outputs.code }}
+          cp app/build/outputs/apk/release/app-release.apk \
+            ColorOSGmsNetworkGuard-${{ steps.version.outputs.name }}.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ColorOSGmsNetworkGuard-${{ steps.version.outputs.name }}
+          path: ColorOSGmsNetworkGuard-${{ steps.version.outputs.name }}.apk
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            ColorOSGmsNetworkGuard-${{ steps.version.outputs.name }}.apk \
+            --target "$GITHUB_SHA" \
+            --title "ColorOS GMS & Anti-Fraud Guard ${{ steps.version.outputs.name }}" \
+            --generate-notes \
+            --latest

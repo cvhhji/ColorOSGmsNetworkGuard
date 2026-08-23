@@ -1,1 +1,0 @@
-package de.robv.android.xposed; public final class XposedHelpers { public static Class<?> findClass(String n,ClassLoader c){return null;} public static Object findAndHookMethod(String c,ClassLoader l,String n,Object...a){return null;} public static Object getObjectField(Object o,String n){return null;} }
