@@ -1,1 +1,1 @@
-package de.robv.android.xposed; public final class XposedBridge { public static void log(String s){} public static java.util.Set<?> hookAllMethods(Class<?> c,String n,XC_MethodHook h){return null;} }
+package de.robv.android.xposed; public final class XposedBridge { public static void log(String s){} public static java.util.Set<?> hookAllMethods(Class<?> c,String n,XC_MethodHook h){return null;} public static Object hookMethod(java.lang.reflect.Member m,XC_MethodHook h){return null;} }
