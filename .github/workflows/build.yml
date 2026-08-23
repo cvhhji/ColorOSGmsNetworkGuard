@@ -37,7 +37,7 @@ jobs:
           if [[ -n "$latest" ]]; then
             base="${latest#v}"
           else
-            base="$(sed -n "s/.*versionName '\([^']*\)'.*/\1/p" app/build.gradle)"
+            base="$(cat VERSION)"
           fi
           IFS=. read -r major minor patch <<< "$base"
           patch=$((patch + 1))

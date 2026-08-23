@@ -1,6 +1,19 @@
 plugins { id 'com.android.application' }
-android { namespace 'io.github.cvhhji.gmsnetguard'; compileSdk 35
- defaultConfig { applicationId 'io.github.cvhhji.gmsnetguard'; minSdk 30; targetSdk 35; versionCode (project.findProperty('VERSION_CODE') ?: '2').toInteger(); versionName (project.findProperty('VERSION_NAME') ?: '1.1.0') }
+
+def releaseVersionName = providers.gradleProperty('VERSION_NAME').getOrElse('1.1.0')
+def releaseVersionCode = providers.gradleProperty('VERSION_CODE').map { it.toInteger() }.getOrElse(2)
+
+android {
+ namespace 'io.github.cvhhji.gmsnetguard'
+ compileSdk 35
+ defaultConfig {
+  applicationId 'io.github.cvhhji.gmsnetguard'
+  minSdk 30
+  targetSdk 35
+  versionCode releaseVersionCode
+  versionName releaseVersionName
+ }
  buildTypes { release { signingConfig signingConfigs.debug; minifyEnabled false } }
+ packaging { resources { merges += 'META-INF/xposed/*' } }
 }
 dependencies { compileOnly 'io.github.libxposed:api:102.0.0' }
