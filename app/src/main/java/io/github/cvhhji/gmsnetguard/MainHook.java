@@ -15,7 +15,7 @@ public final class MainHook implements IXposedHookLoadPackage {
   hookWriter(p.classLoader,"android.net.IOplusNetworkingControlManager$Stub$Proxy");
   if("android".equals(p.packageName)) try {
    XposedHelpers.findAndHookMethod("com.android.server.SystemServer",p.classLoader,"startOtherServices",new XC_MethodHook(){
-    @Override protected void afterHookedMethod(MethodHookParam q){ startLoop((Context)XposedHelpers.getObjectField(q.thisObject,"mSystemContext")); }
+    @Override protected void afterHookedMethod(MethodHookParam q){ startEventRepair((Context)XposedHelpers.getObjectField(q.thisObject,"mSystemContext")); }
    });
   } catch(Throwable t){ log("SystemServer hook unavailable",t); }
  }
@@ -33,9 +33,34 @@ public final class MainHook implements IXposedHookLoadPackage {
   String[] ps=(String[])pm.getClass().getMethod("getPackagesForUid",int.class).invoke(pm,uid);
   if(ps!=null) for(String p:ps) if(TARGETS.contains(p)) return true;
  } catch(Throwable t){ log("UID lookup",t); } return false; }
- private static void startLoop(Context c){ Handler h=new Handler(Looper.getMainLooper()); Runnable r=new Runnable(){ public void run(){ repair(c); h.postDelayed(this,15000); }}; h.postDelayed(r,5000);
-  IntentFilter f=new IntentFilter(); f.addAction(Intent.ACTION_BOOT_COMPLETED); f.addAction("android.net.conn.CONNECTIVITY_CHANGE");
-  try { c.registerReceiver(new BroadcastReceiver(){ public void onReceive(Context x,Intent i){ h.postDelayed(()->repair(x),1500); }},f,Context.RECEIVER_NOT_EXPORTED); } catch(Throwable t){ log("receiver",t); }
+ private static void startEventRepair(Context c){
+  Handler h=new Handler(Looper.getMainLooper());
+  // Clear any stale OEM policy once after system services are ready.
+  h.postDelayed(()->repair(c),5000);
+
+  BroadcastReceiver receiver=new BroadcastReceiver(){
+   @Override public void onReceive(Context x,Intent i){
+    String action=i.getAction();
+    if(Intent.ACTION_PACKAGE_ADDED.equals(action)||Intent.ACTION_PACKAGE_REPLACED.equals(action)){
+     if(i.getData()==null||!TARGETS.contains(i.getData().getSchemeSpecificPart())) return;
+    }
+    // Let ColorOS finish its own policy update before clearing stale state.
+    h.removeCallbacksAndMessages(null);
+    h.postDelayed(()->repair(x),1500);
+   }
+  };
+  try {
+   IntentFilter systemEvents=new IntentFilter();
+   systemEvents.addAction(Intent.ACTION_BOOT_COMPLETED);
+   systemEvents.addAction("android.net.conn.CONNECTIVITY_CHANGE");
+   c.registerReceiver(receiver,systemEvents,Context.RECEIVER_NOT_EXPORTED);
+
+   IntentFilter packageEvents=new IntentFilter();
+   packageEvents.addAction(Intent.ACTION_PACKAGE_ADDED);
+   packageEvents.addAction(Intent.ACTION_PACKAGE_REPLACED);
+   packageEvents.addDataScheme("package");
+   c.registerReceiver(receiver,packageEvents,Context.RECEIVER_NOT_EXPORTED);
+  } catch(Throwable t){ log("receiver",t); }
  }
  private static void repair(Context c){ try { Object m=c.getSystemService("networking_control"); if(m==null)return; Method set=m.getClass().getMethod("setUidPolicy",int.class,int.class);
   for(String p:TARGETS) try { set.invoke(m,c.getPackageManager().getPackageUid(p,0),0); } catch(Throwable t){ log("repair "+p,t); }
