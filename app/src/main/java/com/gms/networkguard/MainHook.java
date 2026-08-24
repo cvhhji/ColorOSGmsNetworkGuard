@@ -1,4 +1,4 @@
-package io.github.cvhhji.gmsnetguard;
+package com.gms.networkguard;
 import android.content.*;import android.content.pm.*;import android.os.*;import android.util.*;import java.lang.reflect.*;import java.util.*;import dalvik.system.DexFile;import io.github.libxposed.api.XposedModule;
 public final class MainHook extends XposedModule{
  static final String TAG="GmsAntiFraudGuard",ANDROID="android",SYSTEM="system",PM="com.coloros.phonemanager";static final Set<String>GOOGLE=new HashSet<>(Arrays.asList("com.google.android.gms","com.android.vending","com.google.android.gsf"));
