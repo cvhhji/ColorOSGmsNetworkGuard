@@ -10,12 +10,12 @@ Hook `OplusNetworkingControlManager.setUidPolicy(uid, policy)`，将目标 UID �
 
 ## 中国版 ColorOS AI 反诈停用
 
-模块仅停用手机管家中已确认属于 `aivoicecalldetect` / `FraudDetectRuleFilePipeProvider` 的活动、广播、服务和 Provider，包括通话录音反诈检测、风险弹窗、反诈记录和规则管道。保留手机管家的清理、病毒扫描、权限管理，以及电话的普通来电和骚扰拦截功能。
+模块仅停用手机管家中已确认属于 `aivoicecalldetect` / `FraudDetectRuleFilePipeProvider` 的活动、广播、服务和 Provider，包括通话录音反诈检测、跨场景检测设置、风险详情与弹窗、反诈记录、误报反馈和规则管道。保留手机管家的清理、病毒扫描、权限管理，以及电话的普通来电和骚扰拦截功能。
 
 停用在 `system_server` 启动后执行，并会在手机管家更新后重新应用，不使用轮询。卸载模块前如需恢复，可执行：
 
 ```sh
-for c in $(pm dump com.coloros.phonemanager | sed -n '/disabledComponents:/,/enabledComponents:/p' | grep aivoicecalldetect); do pm enable "com.coloros.phonemanager/$c"; done
+for c in $(pm dump com.coloros.phonemanager | sed -n '/disabledComponents:/,/enabledComponents:/p' | grep -E 'aivoicecalldetect|FraudDetectRuleFilePipeProvider'); do pm enable "com.coloros.phonemanager/$c"; done
 ```
 
 

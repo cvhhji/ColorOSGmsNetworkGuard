@@ -5,11 +5,11 @@ def releaseVersionCode = providers.gradleProperty('VERSION_CODE').map { it.toInt
 
 android {
  namespace 'com.gms.networkguard'
- compileSdk 37
+ compileSdk 35
  defaultConfig {
   applicationId 'com.gms.networkguard'
   minSdk 30
-  targetSdk 37
+  targetSdk 35
   versionCode releaseVersionCode
   versionName releaseVersionName
  }
