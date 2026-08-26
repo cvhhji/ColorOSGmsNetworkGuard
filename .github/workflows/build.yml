@@ -67,6 +67,6 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}" \
             ColorOSGmsNetworkGuard-${{ steps.version.outputs.name }}.apk \
             --target "$GITHUB_SHA" \
-            --title "ColorOS GMS & Anti-Fraud Guard ${{ steps.version.outputs.name }}" \
+            --title "GMS 守护 ${{ steps.version.outputs.name }}" \
             --generate-notes \
             --latest
