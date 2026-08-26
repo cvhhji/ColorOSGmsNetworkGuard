@@ -3,6 +3,11 @@ plugins { id 'com.android.application' }
 def releaseVersionName = providers.gradleProperty('VERSION_NAME').getOrElse('1.1.0')
 def releaseVersionCode = providers.gradleProperty('VERSION_CODE').map { it.toInteger() }.getOrElse(2)
 
+def releaseStoreFile = System.getenv('ANDROID_KEYSTORE_PATH')
+def releaseStorePassword = System.getenv('ANDROID_KEYSTORE_PASSWORD')
+def releaseKeyAlias = System.getenv('ANDROID_KEY_ALIAS')
+def releaseKeyPassword = System.getenv('ANDROID_KEY_PASSWORD')
+
 android {
  namespace 'com.gms.networkguard'
  compileSdk 35
@@ -13,7 +18,21 @@ android {
   versionCode releaseVersionCode
   versionName releaseVersionName
  }
- buildTypes { release { signingConfig signingConfigs.debug; minifyEnabled false } }
+ signingConfigs {
+  release {
+   if (releaseStoreFile) storeFile file(releaseStoreFile)
+   storePassword releaseStorePassword
+   keyAlias releaseKeyAlias
+   keyPassword releaseKeyPassword
+  }
+ }
+ buildTypes {
+  release {
+   if (!releaseStoreFile) throw new GradleException('ANDROID_KEYSTORE_PATH is required for release builds')
+   signingConfig signingConfigs.release
+   minifyEnabled false
+  }
+ }
  packaging { resources { merges += 'META-INF/xposed/*' } }
 }
 dependencies { compileOnly 'io.github.libxposed:api:102.0.0' }
