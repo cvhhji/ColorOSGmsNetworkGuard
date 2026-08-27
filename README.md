@@ -10,6 +10,10 @@ Hook `OplusNetworkingControlManager.setUidPolicy(uid, policy)`，将目标 UID �
 
 安装 Actions 生成的 APK，在 LSPosed 启用，作用域勾选“系统框架”，重启。针对 OnePlus 15 / PLK110 / Android 16 / ColorOS 16 开发；已按 ColorOS 16.1（16.0.9.400）与手机管家 17.1.6 的组件清单复核。
 
+## Google 设置入口
+
+模块在 `com.android.settings` 进程中 Hook ColorOS 的 Google 设置入口可用性判断，不再挂载或修改 `/system`、`/product`，避免 VINTF/SELinux 启动故障。
+
 ## 中国版 ColorOS AI 反诈停用
 
 模块仅停用手机管家中已确认属于 `aivoicecalldetect` / `FraudDetectRuleFilePipeProvider` 的活动、广播、服务和 Provider，包括通话录音反诈检测、跨场景检测设置、风险详情与弹窗、反诈记录、误报反馈和规则管道。保留手机管家的清理、病毒扫描、权限管理，以及电话的普通来电和骚扰拦截功能。

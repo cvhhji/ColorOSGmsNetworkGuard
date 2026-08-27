@@ -21,6 +21,7 @@ public final class MainHook extends XposedModule {
     static final String TAG = "GmsAntiFraudGuard";
     static final String ANDROID = "android";
     static final String SYSTEM = "system";
+    static final String SETTINGS = "com.android.settings";
     static final String PM = "com.coloros.phonemanager";
 
     static final Set<String> GOOGLE = new HashSet<>(Arrays.asList(
@@ -58,6 +59,10 @@ public final class MainHook extends XposedModule {
         String pkg = param.getPackageName();
         ClassLoader cl = param.getClassLoader();
 
+        if (SETTINGS.equals(pkg)) {
+            hookSettings(cl);
+        }
+
         if (ANDROID.equals(pkg) || SYSTEM.equals(pkg) || "com.oplus.battery".equals(pkg)) {
             hookNetworking(cl);
             if (ANDROID.equals(pkg) || SYSTEM.equals(pkg)) {
@@ -87,6 +92,34 @@ public final class MainHook extends XposedModule {
                 disableFraud(ctx);
             }
         }
+    }
+
+    void hookSettings(ClassLoader cl) {
+        int count = 0;
+        for (String className : new String[]{
+                "com.oplus.settings.feature.homepage.controller.GooglePreferenceController",
+                "com.oplus.settings.feature.othersettings.controller.GoogleSettingPreferenceController"
+        }) {
+            try {
+                Class<?> controller = Class.forName(className, false, cl);
+                for (Method method : controller.getDeclaredMethods()) {
+                    String name = method.getName();
+                    if (name.equals("getAvailabilityStatus") && method.getReturnType() == int.class) {
+                        hook(method).setId("show-google-" + className + "-" + name)
+                                .intercept(chain -> 0);
+                        count++;
+                    } else if (name.equals("isPreferenceAvailable")
+                            && method.getReturnType() == boolean.class) {
+                        hook(method).setId("show-google-" + className + "-" + name)
+                                .intercept(chain -> true);
+                        count++;
+                    }
+                }
+            } catch (Throwable t) {
+                err("settings " + className, t);
+            }
+        }
+        info("Google Settings entry hooks=" + count);
     }
 
     static Context currentContext() {
