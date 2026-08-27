@@ -1,19 +1,339 @@
 package com.gms.networkguard;
-import android.content.*;import android.content.pm.*;import android.os.*;import android.util.*;import java.lang.reflect.*;import java.util.*;import io.github.libxposed.api.XposedModule;
-public final class MainHook extends XposedModule{
- static final String TAG="GmsAntiFraudGuard",ANDROID="android",SYSTEM="system",PM="com.coloros.phonemanager";static final Set<String>GOOGLE=new HashSet<>(Arrays.asList("com.google.android.gms","com.android.vending","com.google.android.gsf"));
- static final String[] COMPONENTS={"com.oplus.phonemanager.aivoicecalldetect.antifraudhome.SecurityHomeActivity","com.oplus.phonemanager.aivoicecalldetect.settings.AiVoiceCallDetectSettingsActivity","com.oplus.phonemanager.aivoicecalldetect.settings.CrossSceneFraudDetectSettingsActivity","com.oplus.phonemanager.aivoicecalldetect.frauddetailpage.FraudDetailActivity","com.oplus.phonemanager.aivoicecalldetect.records.FraudDetectRecordsActivity","com.oplus.phonemanager.aivoicecalldetect.riskdetail.ui.AntiFraudSeqDetailsActivity","com.oplus.phonemanager.aivoicecalldetect.antifraudrecords.view.SecurityEventStatisticsActivity","com.oplus.phonemanager.aivoicecalldetect.feedback.FalseReportFeedbackActivity","com.oplus.phonemanager.aivoicecalldetect.dialog.FraudRiskDialogActivity","com.oplus.phonemanager.aivoicecalldetect.receiver.InCallRiskDialogReceiver","com.oplus.phonemanager.aivoicecalldetect.trigger.VoipCallDetectTriggerReceiver","com.oplus.phonemanager.aivoicecalldetect.trigger.SimCallDetectTriggerService","com.oplus.phonemanager.aivoicecalldetect.service.AiVoiceDetectForegroundService","com.oplus.phonemanager.aivoicecalldetect.provider.AiVoiceDetectProvider","com.oplus.phonemanager.aivoicecalldetect.provider.FeedbackFileLogProvider","com.oplus.phonemanager.common.provider.FraudDetectRuleFilePipeProvider"};
- public void onModuleLoaded(ModuleLoadedParam p){info("loaded "+p.getProcessName());}
- public void onPackageReady(PackageReadyParam p){String pkg=p.getPackageName();ClassLoader cl=p.getClassLoader();if(ANDROID.equals(pkg)||SYSTEM.equals(pkg)||"com.oplus.battery".equals(pkg)){hookNetworking(cl);if(ANDROID.equals(pkg)||SYSTEM.equals(pkg))hookSystemServer(cl);Context x=currentContext();if(x!=null)new Handler(Looper.getMainLooper()).postDelayed(()->{repair(x);disableFraud(x);},4000);else info("system context unavailable");new Thread(()->{try{Thread.sleep(10000);}catch(Throwable ignored){}disableFraudShell();},"GmsGuardDisable").start();}if(PM.equals(pkg)){Context x=currentContext();if(x!=null)disableFraud(x);}}
- static Context currentContext(){try{Class<?>c=Class.forName("android.app.ActivityThread");Context x=(Context)c.getMethod("currentApplication").invoke(null);if(x!=null)return x;Object at=c.getMethod("currentActivityThread").invoke(null);Method m=c.getDeclaredMethod("getSystemContext");m.setAccessible(true);return(Context)m.invoke(at);}catch(Throwable ignored){return null;}}
- void hookSystemServer(ClassLoader cl){try{Class<?>c=Class.forName("com.android.server.SystemServer",false,cl);for(Method m:c.getDeclaredMethods())if(m.getName().equals("startOtherServices")){hook(m).setId("gms-repair-start").intercept(ch->{Object r=ch.proceed();Context x=context(ch.getThisObject());if(x!=null)new Handler(Looper.getMainLooper()).postDelayed(()->{repair(x);disableFraud(x);},5000);return r;});break;}}catch(Throwable t){err("systemserver",t);}}
- static Context context(Object o){for(Class<?>c=o.getClass();c!=null;c=c.getSuperclass())try{Field f=c.getDeclaredField("mSystemContext");f.setAccessible(true);return(Context)f.get(o);}catch(Throwable ignored){}return null;}
- void hookNetworking(ClassLoader cl){hookNms(cl);hookPolicy(cl,"android.net.OplusNetworkingControlManager");hookPolicy(cl,"android.net.IOplusNetworkingControlManager$Stub$Proxy");try{Class<?>c=Class.forName("com.android.server.nwpower.OAppNetControlService",false,cl);for(Method m:c.getDeclaredMethods()){String n=m.getName();if((n.equals("setFirewall")||n.equals("legacySetFirewall"))&&m.getParameterCount()==2)hook(m).setId("allow-gms-fw-"+n).intercept(ch->{Object[]a=ch.getArgs().toArray();if(a[0]instanceof Integer&&googleUid((Integer)a[0])){a[1]=false;info("prevent firewall uid="+a[0]);return ch.proceed(a);}return ch.proceed();});else if((n.equals("destroySocket")||n.equals("forceStopNetDisbaleWhitelist"))&&m.getParameterCount()==1)hook(m).setId("keep-gms-socket-"+n).intercept(ch->{Object a=ch.getArg(0);if(a instanceof Integer&&googleUid((Integer)a)){info("prevent socket destroy uid="+a);return null;}return ch.proceed();});else if(n.equals("networkDisableWhiteList"))hook(m).setId("gms-net-whitelist").intercept(ch->{Object[]a=ch.getArgs().toArray();if(a[0]instanceof List){List<Object>l=new ArrayList<>((List<?>)a[0]);l.addAll(GOOGLE);a[0]=l;}return ch.proceed(a);});}info("OAppNetControl hooks ready");}catch(Throwable t){err("OAppNetControl",t);}}
- void hookNms(ClassLoader cl){for(String cn:new String[]{"com.android.server.net.NetworkPolicyManagerService","com.android.server.net.NetworkPolicyManagerService$NetworkPolicyManagerInternalImpl"})try{Class<?>c=Class.forName(cn,false,cl);for(Method m:c.getDeclaredMethods()){String n=m.getName();if((n.equals("setUidPolicy")||n.equals("addUidPolicy")||n.equals("setUidFirewallRule")||n.equals("setUidFirewallRuleUL"))&&m.getParameterCount()>=2)hook(m).setId("allow-google-mobile-"+cn+"-"+n).intercept(ch->{Object[]a=ch.getArgs().toArray();int pos=-1;for(int i=0;i<a.length;i++)if(a[i]instanceof Integer&&googleUid((Integer)a[i])){pos=i;break;}if(pos>=0){if((n.equals("setUidPolicy")||n.equals("addUidPolicy"))&&pos+1<a.length&&a[pos+1]instanceof Integer)a[pos+1]=4;else if(a.length>0&&a[a.length-1]instanceof Integer)a[a.length-1]=1;info("prevent metered deny uid="+a[pos]+" via "+n);return ch.proceed(a);}return ch.proceed();});}info("metered policy hooks ready "+cn);}catch(Throwable ignored){}}
- void hookPolicy(ClassLoader cl,String n){try{Class<?>c=Class.forName(n,false,cl);for(Method m:c.getDeclaredMethods())if(m.getName().equals("setUidPolicy")&&m.getParameterCount()>=2)hook(m).setId("allow-google-policy-"+n).intercept(ch->{Object[]a=ch.getArgs().toArray();if(a[0]instanceof Integer&&googleUid((Integer)a[0]))a[1]=0;return ch.proceed(a);});}catch(Throwable ignored){}}
- void repair(Context x){try{PackageManager pm=x.getPackageManager();for(String p:GOOGLE){int u=pm.getPackageUid(p,0);try{Class<?>c=Class.forName("android.net.OplusNetworkingControlManager");Object m=c.getMethod("getOplusNetworkingControlManager").invoke(null);c.getMethod("setUidPolicy",int.class,int.class).invoke(m,u,0);int policy=(Integer)c.getMethod("getUidPolicy",int.class).invoke(m,u);info("oplus policy "+p+"="+policy);}catch(Throwable t){err("policy "+p,t);}try{Object npm=x.getSystemService("netpolicy");Class<?>nc=Class.forName("android.net.NetworkPolicyManager");nc.getMethod("setUidPolicy",int.class,int.class).invoke(npm,u,4);info("metered policy "+p+"=4");}catch(Throwable t){err("metered "+p,t);}try{android.app.usage.UsageStatsManager us=(android.app.usage.UsageStatsManager)x.getSystemService(Context.USAGE_STATS_SERVICE);us.getClass().getMethod("setAppStandbyBucket",String.class,int.class).invoke(us,p,android.app.usage.UsageStatsManager.STANDBY_BUCKET_ACTIVE);}catch(Throwable ignored){}info("repaired "+p+" uid="+u);}}catch(Throwable t){err("repair",t);}}
- void disableFraudShell(){try{for(String c:COMPONENTS){java.lang.Process q=new ProcessBuilder("/system/bin/pm","disable","--user","0",PM+"/"+c).redirectErrorStream(true).start();int rc=q.waitFor();info("disable "+c+" rc="+rc);}info("anti-fraud disable commands issued");}catch(Throwable t){err("disable shell",t);}}
- void disableFraud(Context x){int n=0;for(String c:COMPONENTS)try{x.getPackageManager().setComponentEnabledSetting(new ComponentName(PM,c),PackageManager.COMPONENT_ENABLED_STATE_DISABLED,PackageManager.DONT_KILL_APP);n++;}catch(Throwable t){err("disable "+c,t);}info("anti-fraud components disabled="+n);}
- boolean googleUid(int u){try{Object pm=Class.forName("android.app.AppGlobals").getMethod("getPackageManager").invoke(null);String[]ps=(String[])pm.getClass().getMethod("getPackagesForUid",int.class).invoke(pm,u);if(ps!=null)for(String p:ps)if(GOOGLE.contains(p))return true;}catch(Throwable ignored){}return false;}
- void info(String s){log(Log.INFO,TAG,s);}void err(String s,Throwable t){log(Log.ERROR,TAG,s,t);}
+
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.pm.PackageManager;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import io.github.libxposed.api.XposedModule;
+
+public final class MainHook extends XposedModule {
+    static final String TAG = "GmsAntiFraudGuard";
+    static final String ANDROID = "android";
+    static final String SYSTEM = "system";
+    static final String PM = "com.coloros.phonemanager";
+
+    static final Set<String> GOOGLE = new HashSet<>(Arrays.asList(
+            "com.google.android.gms",
+            "com.android.vending",
+            "com.google.android.gsf"
+    ));
+
+    static final String[] FRAUD_COMPONENTS = {
+            "com.oplus.phonemanager.aivoicecalldetect.antifraudhome.SecurityHomeActivity",
+            "com.oplus.phonemanager.aivoicecalldetect.settings.AiVoiceCallDetectSettingsActivity",
+            "com.oplus.phonemanager.aivoicecalldetect.settings.CrossSceneFraudDetectSettingsActivity",
+            "com.oplus.phonemanager.aivoicecalldetect.frauddetailpage.FraudDetailActivity",
+            "com.oplus.phonemanager.aivoicecalldetect.records.FraudDetectRecordsActivity",
+            "com.oplus.phonemanager.aivoicecalldetect.riskdetail.ui.AntiFraudSeqDetailsActivity",
+            "com.oplus.phonemanager.aivoicecalldetect.antifraudrecords.view.SecurityEventStatisticsActivity",
+            "com.oplus.phonemanager.aivoicecalldetect.feedback.FalseReportFeedbackActivity",
+            "com.oplus.phonemanager.aivoicecalldetect.dialog.FraudRiskDialogActivity",
+            "com.oplus.phonemanager.aivoicecalldetect.receiver.InCallRiskDialogReceiver",
+            "com.oplus.phonemanager.aivoicecalldetect.trigger.VoipCallDetectTriggerReceiver",
+            "com.oplus.phonemanager.aivoicecalldetect.trigger.SimCallDetectTriggerService",
+            "com.oplus.phonemanager.aivoicecalldetect.service.AiVoiceDetectForegroundService",
+            "com.oplus.phonemanager.aivoicecalldetect.provider.AiVoiceDetectProvider",
+            "com.oplus.phonemanager.aivoicecalldetect.provider.FeedbackFileLogProvider",
+            "com.oplus.phonemanager.common.provider.FraudDetectRuleFilePipeProvider"
+    };
+
+    @Override
+    public void onModuleLoaded(ModuleLoadedParam param) {
+        info("loaded " + param.getProcessName());
+    }
+
+    @Override
+    public void onPackageReady(PackageReadyParam param) {
+        String pkg = param.getPackageName();
+        ClassLoader cl = param.getClassLoader();
+
+        if (ANDROID.equals(pkg) || SYSTEM.equals(pkg) || "com.oplus.battery".equals(pkg)) {
+            hookNetworking(cl);
+            if (ANDROID.equals(pkg) || SYSTEM.equals(pkg)) {
+                hookSystemServer(cl);
+            }
+            Context ctx = currentContext();
+            if (ctx != null) {
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    repair(ctx);
+                    disableFraud(ctx);
+                }, 4000);
+            } else {
+                info("system context unavailable");
+            }
+            new Thread(() -> {
+                try {
+                    Thread.sleep(10000);
+                } catch (Throwable ignored) {
+                }
+                disableFraudShell();
+            }, "GmsGuardDisable").start();
+        }
+
+        if (PM.equals(pkg)) {
+            Context ctx = currentContext();
+            if (ctx != null) {
+                disableFraud(ctx);
+            }
+        }
+    }
+
+    static Context currentContext() {
+        try {
+            Class<?> c = Class.forName("android.app.ActivityThread");
+            Context ctx = (Context) c.getMethod("currentApplication").invoke(null);
+            if (ctx != null) return ctx;
+            Object at = c.getMethod("currentActivityThread").invoke(null);
+            Method m = c.getDeclaredMethod("getSystemContext");
+            m.setAccessible(true);
+            return (Context) m.invoke(at);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    void hookSystemServer(ClassLoader cl) {
+        try {
+            Class<?> c = Class.forName("com.android.server.SystemServer", false, cl);
+            for (Method m : c.getDeclaredMethods()) {
+                if (m.getName().equals("startOtherServices")) {
+                    hook(m).setId("gms-repair-start").intercept(chain -> {
+                        Object result = chain.proceed();
+                        Context ctx = context(chain.getThisObject());
+                        if (ctx != null) {
+                            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                                repair(ctx);
+                                disableFraud(ctx);
+                            }, 5000);
+                        }
+                        return result;
+                    });
+                    break;
+                }
+            }
+        } catch (Throwable t) {
+            err("systemserver", t);
+        }
+    }
+
+    static Context context(Object target) {
+        for (Class<?> c = target.getClass(); c != null; c = c.getSuperclass()) {
+            try {
+                Field f = c.getDeclaredField("mSystemContext");
+                f.setAccessible(true);
+                return (Context) f.get(target);
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
+    }
+
+    void hookNetworking(ClassLoader cl) {
+        hookNms(cl);
+        hookPolicy(cl, "android.net.OplusNetworkingControlManager");
+        hookPolicy(cl, "android.net.IOplusNetworkingControlManager$Stub$Proxy");
+        try {
+            Class<?> c = Class.forName("com.android.server.nwpower.OAppNetControlService", false, cl);
+            for (Method m : c.getDeclaredMethods()) {
+                String name = m.getName();
+                if ((name.equals("setFirewall") || name.equals("legacySetFirewall")) && m.getParameterCount() == 2) {
+                    hook(m).setId("allow-gms-fw-" + name).intercept(chain -> {
+                        Object[] args = chain.getArgs().toArray();
+                        if (args[0] instanceof Integer && googleUid((Integer) args[0])) {
+                            args[1] = false;
+                            info("prevent firewall uid=" + args[0]);
+                            return chain.proceed(args);
+                        }
+                        return chain.proceed();
+                    });
+                } else if ((name.equals("destroySocket") || name.equals("forceStopNetDisbaleWhitelist")) && m.getParameterCount() == 1) {
+                    hook(m).setId("keep-gms-socket-" + name).intercept(chain -> {
+                        Object arg = chain.getArg(0);
+                        if (arg instanceof Integer && googleUid((Integer) arg)) {
+                            info("prevent socket destroy uid=" + arg);
+                            return null;
+                        }
+                        return chain.proceed();
+                    });
+                } else if (name.equals("networkDisableWhiteList")) {
+                    hook(m).setId("gms-net-whitelist").intercept(chain -> {
+                        Object[] args = chain.getArgs().toArray();
+                        if (args[0] instanceof List) {
+                            List<Object> list = new ArrayList<>((List<?>) args[0]);
+                            list.addAll(GOOGLE);
+                            args[0] = list;
+                        }
+                        return chain.proceed(args);
+                    });
+                }
+            }
+            info("OAppNetControl hooks ready");
+        } catch (Throwable t) {
+            err("OAppNetControl", t);
+        }
+    }
+
+    void hookNms(ClassLoader cl) {
+        String[] classes = {
+                "com.android.server.net.NetworkPolicyManagerService",
+                "com.android.server.net.NetworkPolicyManagerService$NetworkPolicyManagerInternalImpl"
+        };
+        for (String className : classes) {
+            try {
+                Class<?> c = Class.forName(className, false, cl);
+                for (Method m : c.getDeclaredMethods()) {
+                    String name = m.getName();
+                    if ((name.equals("setUidPolicy") || name.equals("addUidPolicy")
+                            || name.equals("setUidFirewallRule") || name.equals("setUidFirewallRuleUL"))
+                            && m.getParameterCount() >= 2) {
+                        hook(m).setId("allow-google-mobile-" + className + "-" + name).intercept(chain -> {
+                            Object[] args = chain.getArgs().toArray();
+                            int pos = -1;
+                            for (int i = 0; i < args.length; i++) {
+                                if (args[i] instanceof Integer && googleUid((Integer) args[i])) {
+                                    pos = i;
+                                    break;
+                                }
+                            }
+                            if (pos >= 0) {
+                                if ((name.equals("setUidPolicy") || name.equals("addUidPolicy"))
+                                        && pos + 1 < args.length && args[pos + 1] instanceof Integer) {
+                                    args[pos + 1] = 4;
+                                } else if (args.length > 0 && args[args.length - 1] instanceof Integer) {
+                                    args[args.length - 1] = 1;
+                                }
+                                info("prevent metered deny uid=" + args[pos] + " via " + name);
+                                return chain.proceed(args);
+                            }
+                            return chain.proceed();
+                        });
+                    }
+                }
+                info("metered policy hooks ready " + className);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    void hookPolicy(ClassLoader cl, String className) {
+        try {
+            Class<?> c = Class.forName(className, false, cl);
+            for (Method m : c.getDeclaredMethods()) {
+                if (m.getName().equals("setUidPolicy") && m.getParameterCount() >= 2) {
+                    hook(m).setId("allow-google-policy-" + className).intercept(chain -> {
+                        Object[] args = chain.getArgs().toArray();
+                        if (args[0] instanceof Integer && googleUid((Integer) args[0])) {
+                            args[1] = 0;
+                        }
+                        return chain.proceed(args);
+                    });
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    void repair(Context context) {
+        try {
+            PackageManager pm = context.getPackageManager();
+            for (String packageName : GOOGLE) {
+                int uid = pm.getPackageUid(packageName, 0);
+                try {
+                    Class<?> c = Class.forName("android.net.OplusNetworkingControlManager");
+                    Object manager = c.getMethod("getOplusNetworkingControlManager").invoke(null);
+                    c.getMethod("setUidPolicy", int.class, int.class).invoke(manager, uid, 0);
+                    int policy = (Integer) c.getMethod("getUidPolicy", int.class).invoke(manager, uid);
+                    info("oplus policy " + packageName + "=" + policy);
+                } catch (Throwable t) {
+                    err("policy " + packageName, t);
+                }
+                try {
+                    Object npm = context.getSystemService("netpolicy");
+                    Class<?> nc = Class.forName("android.net.NetworkPolicyManager");
+                    nc.getMethod("setUidPolicy", int.class, int.class).invoke(npm, uid, 4);
+                    info("metered policy " + packageName + "=4");
+                } catch (Throwable t) {
+                    err("metered " + packageName, t);
+                }
+                try {
+                    android.app.usage.UsageStatsManager us =
+                            (android.app.usage.UsageStatsManager) context.getSystemService(Context.USAGE_STATS_SERVICE);
+                    us.getClass()
+                            .getMethod("setAppStandbyBucket", String.class, int.class)
+                            .invoke(us, packageName, android.app.usage.UsageStatsManager.STANDBY_BUCKET_ACTIVE);
+                } catch (Throwable ignored) {
+                }
+                info("repaired " + packageName + " uid=" + uid);
+            }
+        } catch (Throwable t) {
+            err("repair", t);
+        }
+    }
+
+    void disableFraudShell() {
+        try {
+            for (String component : FRAUD_COMPONENTS) {
+                Process process = new ProcessBuilder("/system/bin/pm", "disable", "--user", "0",
+                        PM + "/" + component).redirectErrorStream(true).start();
+                int rc = process.waitFor();
+                info("disable " + component + " rc=" + rc);
+            }
+            info("anti-fraud disable commands issued");
+        } catch (Throwable t) {
+            err("disable shell", t);
+        }
+    }
+
+    void disableFraud(Context context) {
+        int disabled = 0;
+        for (String component : FRAUD_COMPONENTS) {
+            try {
+                context.getPackageManager().setComponentEnabledSetting(
+                        new ComponentName(PM, component),
+                        PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        PackageManager.DONT_KILL_APP);
+                disabled++;
+            } catch (Throwable t) {
+                err("disable " + component, t);
+            }
+        }
+        info("anti-fraud components disabled=" + disabled);
+    }
+
+    boolean googleUid(int uid) {
+        try {
+            Object pm = Class.forName("android.app.AppGlobals")
+                    .getMethod("getPackageManager")
+                    .invoke(null);
+            String[] packages = (String[]) pm.getClass()
+                    .getMethod("getPackagesForUid", int.class)
+                    .invoke(pm, uid);
+            if (packages != null) {
+                for (String pkg : packages) {
+                    if (GOOGLE.contains(pkg)) return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    void info(String message) {
+        log(Log.INFO, TAG, message);
+    }
+
+    void err(String message, Throwable throwable) {
+        log(Log.ERROR, TAG, message, throwable);
+    }
 }
