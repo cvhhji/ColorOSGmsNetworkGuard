@@ -1,33 +1,52 @@
 # GMS 守护
 
-LSPosed 模块，阻止 ColorOS/OPlus 在重启或网络状态变化后禁止 Google Play services、Play Store 和 Google Services Framework 联网。
+给国行 ColorOS 用的 LSPosed 模块，目前做三件事：
 
-## 原理
+- 防止系统在重启或网络变化后断掉 Google Play 服务、Play 商店和 Google 服务框架的网络。
+- 关闭手机管家里的 AI 通话反诈组件。
+- 关闭“电话 → 拦截规则”里的国家反诈中心拦截服务。
 
-Hook `OplusNetworkingControlManager.setUidPolicy(uid, policy)`，将目标 UID 的非零策略改为 `POLICY_NONE (0)`；并在 `system_server` 启动、网络变化以及目标包安装/更新后清理已有策略。模块完全由事件驱动，不进行定时轮询。
+不会强制显示系统设置里的 Google 入口，也不会改动普通来电拦截、信息拦截、黑名单和白名单。
 
-## 使用
+## 使用方法
 
-安装 Actions 生成的 APK，在 LSPosed 启用，作用域勾选“系统框架”，重启。针对 OnePlus 15 / PLK110 / Android 16 / ColorOS 16 开发；已按 ColorOS 16.1（16.0.9.400）与手机管家 17.1.6 的组件清单复核。
+1. 从 [Releases](https://github.com/cvhhji/ColorOSGmsNetworkGuard/releases) 下载 APK 并安装。
+2. 在 LSPosed 中启用模块，使用模块推荐的作用域。
+3. 重启手机。
 
-## 中国版 ColorOS AI 反诈停用
+模块更新后如果新增了作用域，进 LSPosed 确认新项目已经勾选，再重启一次。
 
-模块仅停用手机管家中已确认属于 `aivoicecalldetect` / `FraudDetectRuleFilePipeProvider` 的活动、广播、服务和 Provider，包括通话录音反诈检测、跨场景检测设置、风险详情与弹窗、反诈记录、误报反馈和规则管道。保留手机管家的清理、病毒扫描、权限管理，以及电话的普通来电和骚扰拦截功能。
+## 适配情况
 
-停用在 `system_server` 启动后执行，并会在手机管家更新后重新应用，不使用轮询。卸载模块前如需恢复，可执行：
+目前按下面这套环境开发和测试：
+
+- OnePlus 15 / PLK110
+- Android 16
+- ColorOS 16.0.9.400
+- 手机管家 17.1.6
+
+系统或手机管家更新后，类名和组件名可能变化。如果功能失效，请带上机型、系统版本和 LSPosed 日志提 Issue。
+
+## 大致原理
+
+GMS 联网部分会拦截 ColorOS 的网络策略调用，并在开机、网络变化或 GMS 包更新后清理已有的限制。
+
+手机管家的 AI 反诈通过停用已经确认的 Activity、Receiver、Service 和 Provider 来处理。电话里的国家反诈中心拦截服务则只改它自己的支持判断和开关读写，不碰其他电话功能。
+
+模块没有定时轮询。
+
+## 恢复手机管家 AI 反诈
+
+卸载模块前，可以在 root shell 中执行：
 
 ```sh
 for c in $(pm dump com.coloros.phonemanager | sed -n '/disabledComponents:/,/enabledComponents:/p' | grep -E 'aivoicecalldetect|FraudDetectRuleFilePipeProvider'); do pm enable "com.coloros.phonemanager/$c"; done
 ```
 
-## 电话的国家反诈中心拦截服务停用
+然后卸载模块并重启。电话里的国家反诈中心拦截服务不需要单独恢复，模块停用后会按系统原本的状态工作。
 
-模块在 `com.oplus.blacklistapp` 中仅 Hook `NationalAntiFraudUtil` 的支持判断、启用状态读取和状态写入，
-使“电话 → 拦截规则 → 国家反诈中心拦截服务”保持停用。普通来电、联系人、黑白名单、骚扰电话与
-广告推销拦截等其他电话功能不做修改。
+## 构建
 
-## Compatibility and releases
+项目使用 JDK 17、Gradle 8.10.2 和 Android SDK 35。推送到 `main` 后，GitHub Actions 会编译 APK、创建新版本并发布到 Releases。
 
-- Declares LSPosed API target **102**.
-- Every successful `main` build automatically increments the patch version, creates a GitHub Release, and uploads an installable APK.
-- Releases are signed with the repository's reproducible debug signing configuration; upgrading requires the same signing identity.
+LSPosed API 版本为 102。
