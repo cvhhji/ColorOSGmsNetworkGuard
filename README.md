@@ -6,15 +6,13 @@
 - 关闭手机管家里的 AI 通话反诈组件。
 - 关闭“电话 → 拦截规则”里的国家反诈中心拦截服务。
 
-不会强制显示系统设置里的 Google 入口，也不会改动普通来电拦截、信息拦截、黑名单和白名单。
+不会改动普通来电拦截、信息拦截、黑名单和白名单。
 
 ## 使用方法
 
-1. 从 [Releases](https://github.com/cvhhji/ColorOSGmsNetworkGuard/releases) 下载 APK 并安装。
+1. 下载 APK 并安装。
 2. 在 LSPosed 中启用模块，使用模块推荐的作用域。
 3. 重启手机。
-
-模块更新后如果新增了作用域，进 LSPosed 确认新项目已经勾选，再重启一次。
 
 ## 适配情况
 
@@ -44,9 +42,3 @@ for c in $(pm dump com.coloros.phonemanager | sed -n '/disabledComponents:/,/ena
 ```
 
 然后卸载模块并重启。电话里的国家反诈中心拦截服务不需要单独恢复，模块停用后会按系统原本的状态工作。
-
-## 构建
-
-项目使用 JDK 17、Gradle 8.10.2 和 Android SDK 35。推送到 `main` 后，GitHub Actions 会编译 APK、创建新版本并发布到 Releases。
-
-LSPosed API 版本为 102。
