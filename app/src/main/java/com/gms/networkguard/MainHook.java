@@ -21,8 +21,8 @@ public final class MainHook extends XposedModule {
     static final String TAG = "GmsAntiFraudGuard";
     static final String ANDROID = "android";
     static final String SYSTEM = "system";
-    static final String SETTINGS = "com.android.settings";
     static final String PM = "com.coloros.phonemanager";
+    static final String BLACKLIST = "com.oplus.blacklistapp";
 
     static final Set<String> GOOGLE = new HashSet<>(Arrays.asList(
             "com.google.android.gms",
@@ -59,8 +59,8 @@ public final class MainHook extends XposedModule {
         String pkg = param.getPackageName();
         ClassLoader cl = param.getClassLoader();
 
-        if (SETTINGS.equals(pkg)) {
-            hookSettings(cl);
+        if (BLACKLIST.equals(pkg)) {
+            hookNationalAntiFraud(cl);
         }
 
         if (ANDROID.equals(pkg) || SYSTEM.equals(pkg) || "com.oplus.battery".equals(pkg)) {
@@ -94,32 +94,30 @@ public final class MainHook extends XposedModule {
         }
     }
 
-    void hookSettings(ClassLoader cl) {
+    void hookNationalAntiFraud(ClassLoader cl) {
         int count = 0;
-        for (String className : new String[]{
-                "com.oplus.settings.feature.homepage.controller.GooglePreferenceController",
-                "com.oplus.settings.feature.othersettings.controller.GoogleSettingPreferenceController"
-        }) {
-            try {
-                Class<?> controller = Class.forName(className, false, cl);
-                for (Method method : controller.getDeclaredMethods()) {
-                    String name = method.getName();
-                    if (name.equals("getAvailabilityStatus") && method.getReturnType() == int.class) {
-                        hook(method).setId("show-google-" + className + "-" + name)
-                                .intercept(chain -> 0);
-                        count++;
-                    } else if (name.equals("isPreferenceAvailable")
-                            && method.getReturnType() == boolean.class) {
-                        hook(method).setId("show-google-" + className + "-" + name)
-                                .intercept(chain -> true);
-                        count++;
-                    }
+        try {
+            Class<?> util = Class.forName("com.oplus.utils.I", false, cl);
+            for (Method method : util.getDeclaredMethods()) {
+                String name = method.getName();
+                if ((name.equals("a") || name.equals("c") || name.equals("d"))
+                        && method.getParameterCount() == 1
+                        && method.getReturnType() == boolean.class) {
+                    hook(method).setId("disable-national-antifraud-" + name)
+                            .intercept(chain -> false);
+                    count++;
+                } else if (name.equals("b")
+                        && method.getParameterCount() == 2
+                        && method.getReturnType() == void.class) {
+                    hook(method).setId("disable-national-antifraud-write")
+                            .intercept(chain -> null);
+                    count++;
                 }
-            } catch (Throwable t) {
-                err("settings " + className, t);
             }
+        } catch (Throwable t) {
+            err("National Anti-Fraud Center", t);
         }
-        info("Google Settings entry hooks=" + count);
+        info("National Anti-Fraud Center hooks=" + count);
     }
 
     static Context currentContext() {
