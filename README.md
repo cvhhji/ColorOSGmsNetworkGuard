@@ -16,20 +16,19 @@
 
 ## 适配情况
 
-目前按下面这套环境开发和测试：
+目前按下面两套环境开发和测试：
 
 - OnePlus 15 / PLK110
-- Android 16
-- ColorOS 16.0.9.400
-- 手机管家 17.1.6
+- Android 16 / ColorOS 16.0.9.400 / 手机管家 17.1.6
+- Android 17 / ColorOS 17.0.0.100 / 手机管家 17.6.6
 
 系统或手机管家更新后，类名和组件名可能变化。如果功能失效，请带上机型、系统版本和 LSPosed 日志提 Issue。
 
 ## 大致原理
 
-GMS 联网部分会拦截 ColorOS 的网络策略调用，并在开机、网络变化或 GMS 包更新后清理已有的限制。
+GMS 联网部分会拦截 ColorOS 的网络策略调用，并在开机、网络变化或 GMS 包更新后清理已有的限制。Android 17 使用新的 `OAppNetControlManager` 接口，模块会同时兼容新旧两套接口。
 
-手机管家的 AI 反诈通过停用已经确认的 Activity、Receiver、Service 和 Provider 来处理。电话里的国家反诈中心拦截服务则只改它自己的支持判断和开关读写，不碰其他电话功能。
+手机管家的 AI 反诈通过停用已经确认的 Activity、Receiver、Service 和 Provider 来处理，Android 17 新增的 AI 换脸检测组件也包含在内。电话里的国家反诈中心拦截服务则只改它自己的支持判断和开关读写，不碰其他电话功能。
 
 模块没有定时轮询。
 

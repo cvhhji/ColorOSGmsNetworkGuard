@@ -46,7 +46,13 @@ public final class MainHook extends XposedModule {
             "com.oplus.phonemanager.aivoicecalldetect.service.AiVoiceDetectForegroundService",
             "com.oplus.phonemanager.aivoicecalldetect.provider.AiVoiceDetectProvider",
             "com.oplus.phonemanager.aivoicecalldetect.provider.FeedbackFileLogProvider",
-            "com.oplus.phonemanager.common.provider.FraudDetectRuleFilePipeProvider"
+            "com.oplus.phonemanager.common.provider.FraudDetectRuleFilePipeProvider",
+            "com.oplus.phonemanager.aivoicecalldetect.receiver.TriggerGuideActionReceiver",
+            "com.oplus.phonemanager.deepfakedetect.ui.DeepfakeFaceDetectSettingsActivity",
+            "com.oplus.phonemanager.deepfakedetect.ui.DeepfakeDetailActivity",
+            "com.oplus.phonemanager.deepfakedetect.ui.DeepfakeImagePreviewActivity",
+            "com.oplus.phonemanager.deepfakedetect.service.DeepfakeForegroundService",
+            "com.oplus.phonemanager.deepfakedetect.receiver.DeepfakeFaceGuideActionReceiver"
     };
 
     @Override
@@ -174,22 +180,29 @@ public final class MainHook extends XposedModule {
         hookNms(cl);
         hookPolicy(cl, "android.net.OplusNetworkingControlManager");
         hookPolicy(cl, "android.net.IOplusNetworkingControlManager$Stub$Proxy");
+        hookOAppNetControl(cl, "com.android.server.nwpower.OAppNetControlService", false);
+        hookOAppNetControl(cl, "android.nwpower.OAppNetControlManager", true);
+    }
+
+    void hookOAppNetControl(ClassLoader cl, String className, boolean allowValue) {
         try {
-            Class<?> c = Class.forName("com.android.server.nwpower.OAppNetControlService", false, cl);
+            Class<?> c = Class.forName(className, false, cl);
             for (Method m : c.getDeclaredMethods()) {
                 String name = m.getName();
-                if ((name.equals("setFirewall") || name.equals("legacySetFirewall")) && m.getParameterCount() == 2) {
-                    hook(m).setId("allow-gms-fw-" + name).intercept(chain -> {
+                if ((name.equals("setFirewall") || name.equals("legacySetFirewall")
+                        || name.equals("setFirewallWithArgs")) && m.getParameterCount() >= 2) {
+                    hook(m).setId("allow-gms-fw-" + className + "-" + name).intercept(chain -> {
                         Object[] args = chain.getArgs().toArray();
                         if (args[0] instanceof Integer && googleUid((Integer) args[0])) {
-                            args[1] = false;
+                            args[1] = allowValue;
                             info("prevent firewall uid=" + args[0]);
                             return chain.proceed(args);
                         }
                         return chain.proceed();
                     });
-                } else if ((name.equals("destroySocket") || name.equals("forceStopNetDisbaleWhitelist")) && m.getParameterCount() == 1) {
-                    hook(m).setId("keep-gms-socket-" + name).intercept(chain -> {
+                } else if ((name.equals("destroySocket") || name.equals("destroySocketForProc")
+                        || name.equals("forceStopNetDisbaleWhitelist")) && m.getParameterCount() >= 1) {
+                    hook(m).setId("keep-gms-socket-" + className + "-" + name).intercept(chain -> {
                         Object arg = chain.getArg(0);
                         if (arg instanceof Integer && googleUid((Integer) arg)) {
                             info("prevent socket destroy uid=" + arg);
@@ -202,16 +215,38 @@ public final class MainHook extends XposedModule {
                         Object[] args = chain.getArgs().toArray();
                         if (args[0] instanceof List) {
                             List<Object> list = new ArrayList<>((List<?>) args[0]);
-                            list.addAll(GOOGLE);
+                            addGoogleIdentifiers(list);
                             args[0] = list;
                         }
                         return chain.proceed(args);
                     });
                 }
             }
-            info("OAppNetControl hooks ready");
+            info("OAppNetControl hooks ready " + className);
+        } catch (ClassNotFoundException ignored) {
         } catch (Throwable t) {
-            err("OAppNetControl", t);
+            err("OAppNetControl " + className, t);
+        }
+    }
+
+    void addGoogleIdentifiers(List<Object> list) {
+        for (String packageName : GOOGLE) {
+            if (!list.contains(packageName)) {
+                list.add(packageName);
+            }
+        }
+        Context context = currentContext();
+        if (context == null) {
+            return;
+        }
+        for (String packageName : GOOGLE) {
+            try {
+                String uid = String.valueOf(context.getPackageManager().getPackageUid(packageName, 0));
+                if (!list.contains(uid)) {
+                    list.add(uid);
+                }
+            } catch (Throwable ignored) {
+            }
         }
     }
 
