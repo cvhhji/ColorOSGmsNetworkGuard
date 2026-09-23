@@ -17,11 +17,10 @@ import java.util.List;
 import java.util.Set;
 
 import io.github.libxposed.api.XposedModule;
+import io.github.libxposed.api.XposedModuleInterface.SystemServerStartingParam;
 
 public final class MainHook extends XposedModule {
     static final String TAG = "GmsAntiFraudGuard";
-    static final String ANDROID = "android";
-    static final String SYSTEM = "system";
     static final String PM = "com.coloros.phonemanager";
     static final String BLACKLIST = "com.oplus.blacklistapp";
 
@@ -75,13 +74,8 @@ public final class MainHook extends XposedModule {
             hookNationalAntiFraud(cl);
         }
 
-        if (ANDROID.equals(pkg) || SYSTEM.equals(pkg) || "com.oplus.battery".equals(pkg)) {
+        if ("com.oplus.battery".equals(pkg)) {
             hookNetworking(cl);
-            if (ANDROID.equals(pkg) || SYSTEM.equals(pkg)) {
-                hookSystemServer(cl);
-                hookFraudActivityStarts(cl);
-                hookFraudServiceStarts(cl);
-            }
             Context ctx = currentContext();
             if (ctx != null) {
                 new Handler(Looper.getMainLooper()).postDelayed(() -> {
@@ -97,6 +91,15 @@ public final class MainHook extends XposedModule {
             hookPhoneManagerAntiFraud(cl);
             hookFraudComponentCallbacks(cl);
         }
+    }
+
+    @Override
+    public void onSystemServerStarting(SystemServerStartingParam param) {
+        ClassLoader cl = param.getClassLoader();
+        hookNetworking(cl);
+        hookSystemServer(cl);
+        hookFraudActivityStarts(cl);
+        hookFraudServiceStarts(cl);
     }
 
     void hookFraudComponentCallbacks(ClassLoader cl) {
