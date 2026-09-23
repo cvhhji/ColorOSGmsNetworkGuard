@@ -31,7 +31,7 @@ public final class MainHook extends XposedModule {
             "com.google.android.gsf"
     ));
 
-    static final String[] LEGACY_FRAUD_COMPONENTS = {
+    static final String[] FRAUD_COMPONENTS = {
             "com.oplus.phonemanager.aivoicecalldetect.antifraudhome.SecurityHomeActivity",
             "com.oplus.phonemanager.aivoicecalldetect.settings.AiVoiceCallDetectSettingsActivity",
             "com.oplus.phonemanager.aivoicecalldetect.settings.CrossSceneFraudDetectSettingsActivity",
@@ -79,7 +79,6 @@ public final class MainHook extends XposedModule {
             if (ctx != null) {
                 new Handler(Looper.getMainLooper()).postDelayed(() -> {
                     repair(ctx);
-                    restoreFraudComponents(ctx);
                 }, 4000);
             } else {
                 info("system context unavailable");
@@ -90,15 +89,11 @@ public final class MainHook extends XposedModule {
             hookFraudComponentStateWrites(cl);
             hookPhoneManagerAntiFraud(cl);
             hookFraudComponentCallbacks(cl);
-            Context ctx = currentContext();
-            if (ctx != null) {
-                restoreFraudComponents(ctx);
-            }
         }
     }
 
     void hookFraudComponentCallbacks(ClassLoader cl) {
-        Set<String> targets = new HashSet<>(Arrays.asList(LEGACY_FRAUD_COMPONENTS));
+        Set<String> targets = new HashSet<>(Arrays.asList(FRAUD_COMPONENTS));
         Set<String> covered = new HashSet<>();
         Set<Method> hooked = new HashSet<>();
         int count = 0;
@@ -136,7 +131,7 @@ public final class MainHook extends XposedModule {
             Class<?> service = Class.forName("android.app.Service", false, cl);
             Class<?> provider = Class.forName("android.content.ContentProvider", false, cl);
 
-            for (String className : LEGACY_FRAUD_COMPONENTS) {
+            for (String className : FRAUD_COMPONENTS) {
                 Class<?> component = Class.forName(className, false, cl);
                 if (activity.isAssignableFrom(component)) {
                     covered.add(className);
@@ -214,7 +209,7 @@ public final class MainHook extends XposedModule {
     }
 
     void hookFraudComponentStateWrites(ClassLoader cl) {
-        Set<String> targets = new HashSet<>(Arrays.asList(LEGACY_FRAUD_COMPONENTS));
+        Set<String> targets = new HashSet<>(Arrays.asList(FRAUD_COMPONENTS));
         int count = 0;
         try {
             Class<?> manager = Class.forName("android.app.ApplicationPackageManager", false, cl);
@@ -335,7 +330,6 @@ public final class MainHook extends XposedModule {
                         if (ctx != null) {
                             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                                 repair(ctx);
-                                restoreFraudComponents(ctx);
                             }, 5000);
                         }
                         return result;
@@ -529,22 +523,6 @@ public final class MainHook extends XposedModule {
         } catch (Throwable t) {
             err("repair", t);
         }
-    }
-
-    void restoreFraudComponents(Context context) {
-        int restored = 0;
-        for (String component : LEGACY_FRAUD_COMPONENTS) {
-            try {
-                context.getPackageManager().setComponentEnabledSetting(
-                        new ComponentName(PM, component),
-                        PackageManager.COMPONENT_ENABLED_STATE_DEFAULT,
-                        PackageManager.DONT_KILL_APP);
-                restored++;
-            } catch (Throwable t) {
-                err("restore " + component, t);
-            }
-        }
-        info("anti-fraud components restored=" + restored);
     }
 
     boolean googleUid(int uid) {
