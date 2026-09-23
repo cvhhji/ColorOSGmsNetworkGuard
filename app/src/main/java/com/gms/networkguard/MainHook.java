@@ -30,7 +30,7 @@ public final class MainHook extends XposedModule {
             "com.google.android.gsf"
     ));
 
-    static final String[] FRAUD_COMPONENTS = {
+    static final String[] LEGACY_FRAUD_COMPONENTS = {
             "com.oplus.phonemanager.aivoicecalldetect.antifraudhome.SecurityHomeActivity",
             "com.oplus.phonemanager.aivoicecalldetect.settings.AiVoiceCallDetectSettingsActivity",
             "com.oplus.phonemanager.aivoicecalldetect.settings.CrossSceneFraudDetectSettingsActivity",
@@ -78,26 +78,92 @@ public final class MainHook extends XposedModule {
             if (ctx != null) {
                 new Handler(Looper.getMainLooper()).postDelayed(() -> {
                     repair(ctx);
-                    disableFraud(ctx);
+                    restoreFraudComponents(ctx);
                 }, 4000);
             } else {
                 info("system context unavailable");
             }
-            new Thread(() -> {
-                try {
-                    Thread.sleep(10000);
-                } catch (Throwable ignored) {
-                }
-                disableFraudShell();
-            }, "GmsGuardDisable").start();
         }
 
         if (PM.equals(pkg)) {
+            hookFraudComponentStateWrites(cl);
+            hookPhoneManagerAntiFraud(cl);
             Context ctx = currentContext();
             if (ctx != null) {
-                disableFraud(ctx);
+                restoreFraudComponents(ctx);
             }
         }
+    }
+
+    void hookFraudComponentStateWrites(ClassLoader cl) {
+        Set<String> targets = new HashSet<>(Arrays.asList(LEGACY_FRAUD_COMPONENTS));
+        int count = 0;
+        try {
+            Class<?> manager = Class.forName("android.app.ApplicationPackageManager", false, cl);
+            for (Method method : manager.getDeclaredMethods()) {
+                if (method.getName().equals("setComponentEnabledSetting")
+                        && method.getParameterCount() == 3
+                        && method.getParameterTypes()[0] == ComponentName.class
+                        && method.getParameterTypes()[1] == int.class
+                        && method.getReturnType() == void.class) {
+                    hook(method).setId("keep-phone-manager-antifraud-component-default")
+                            .intercept(chain -> {
+                                Object componentArg = chain.getArg(0);
+                                Object stateArg = chain.getArg(1);
+                                if (componentArg instanceof ComponentName
+                                        && stateArg instanceof Integer) {
+                                    ComponentName component = (ComponentName) componentArg;
+                                    int state = (Integer) stateArg;
+                                    if (PM.equals(component.getPackageName())
+                                            && targets.contains(component.getClassName())
+                                            && state != PackageManager.COMPONENT_ENABLED_STATE_DEFAULT) {
+                                        info("prevent component state " + component.getClassName()
+                                                + "=" + state);
+                                        return null;
+                                    }
+                                }
+                                return chain.proceed();
+                            });
+                    count++;
+                }
+            }
+        } catch (Throwable t) {
+            err("PhoneManager component state", t);
+        }
+        info("PhoneManager component state hooks=" + count);
+    }
+
+    void hookPhoneManagerAntiFraud(ClassLoader cl) {
+        String[] names = {
+                "isAIVoiceDetectSupport",
+                "isAiFraudDetectSupport",
+                "isDeepfakeFaceDetectSupport",
+                "isIntelligentAntiFraudFullySupported",
+                "isSupportAntiFraudSequence",
+                "isSupportCrossSceneFraud",
+                "isSupportSecurePayFraudSeq",
+                "isAiVoiceSwitchOn",
+                "isAntiFraudSeqSwitchOn",
+                "isSmartAntiFraudSwitchOn"
+        };
+        Set<String> targets = new HashSet<>(Arrays.asList(names));
+        int count = 0;
+        try {
+            Class<?> feature = Class.forName(
+                    "com.oplus.phonemanager.common.feature.FeatureOption", false, cl);
+            for (Method method : feature.getDeclaredMethods()) {
+                if (targets.contains(method.getName())
+                        && method.getParameterCount() == 0
+                        && method.getReturnType() == boolean.class) {
+                    hook(method).setId("disable-phone-manager-antifraud-" + method.getName())
+                            .intercept(chain -> false);
+                    count++;
+                }
+            }
+        } catch (Throwable t) {
+            err("PhoneManager anti-fraud", t);
+        }
+        info("PhoneManager anti-fraud hooks=" + count);
     }
 
     void hookNationalAntiFraud(ClassLoader cl) {
@@ -151,7 +217,7 @@ public final class MainHook extends XposedModule {
                         if (ctx != null) {
                             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                                 repair(ctx);
-                                disableFraud(ctx);
+                                restoreFraudComponents(ctx);
                             }, 5000);
                         }
                         return result;
@@ -347,34 +413,20 @@ public final class MainHook extends XposedModule {
         }
     }
 
-    void disableFraudShell() {
-        try {
-            for (String component : FRAUD_COMPONENTS) {
-                Process process = new ProcessBuilder("/system/bin/pm", "disable", "--user", "0",
-                        PM + "/" + component).redirectErrorStream(true).start();
-                int rc = process.waitFor();
-                info("disable " + component + " rc=" + rc);
-            }
-            info("anti-fraud disable commands issued");
-        } catch (Throwable t) {
-            err("disable shell", t);
-        }
-    }
-
-    void disableFraud(Context context) {
-        int disabled = 0;
-        for (String component : FRAUD_COMPONENTS) {
+    void restoreFraudComponents(Context context) {
+        int restored = 0;
+        for (String component : LEGACY_FRAUD_COMPONENTS) {
             try {
                 context.getPackageManager().setComponentEnabledSetting(
                         new ComponentName(PM, component),
-                        PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        PackageManager.COMPONENT_ENABLED_STATE_DEFAULT,
                         PackageManager.DONT_KILL_APP);
-                disabled++;
+                restored++;
             } catch (Throwable t) {
-                err("disable " + component, t);
+                err("restore " + component, t);
             }
         }
-        info("anti-fraud components disabled=" + disabled);
+        info("anti-fraud components restored=" + restored);
     }
 
     boolean googleUid(int uid) {

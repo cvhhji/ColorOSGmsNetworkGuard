@@ -3,7 +3,7 @@
 给国行 ColorOS 用的 LSPosed 模块，目前做三件事：
 
 - 防止系统在重启或网络变化后断掉 Google Play 服务、Play 商店和 Google 服务框架的网络。
-- 关闭手机管家里的 AI 通话反诈组件。
+- 关闭手机管家里的 AI 通话反诈功能。
 - 关闭“电话 → 拦截规则”里的国家反诈中心拦截服务。
 
 不会改动普通来电拦截、信息拦截、黑名单和白名单。
@@ -28,16 +28,10 @@
 
 GMS 联网部分会拦截 ColorOS 的网络策略调用，并在开机、网络变化或 GMS 包更新后清理已有的限制。Android 17 使用新的 `OAppNetControlManager` 接口，模块会同时兼容新旧两套接口。
 
-手机管家的 AI 反诈通过停用已经确认的 Activity、Receiver、Service 和 Provider 来处理，Android 17 新增的 AI 换脸检测组件也包含在内。电话里的国家反诈中心拦截服务则只改它自己的支持判断和开关读写，不碰其他电话功能。
+手机管家的 AI 通话反诈、跨场景反诈和 AI 换脸检测通过运行时能力判断处理，不再停用 Activity、Receiver、Service 或 Provider。电话里的国家反诈中心拦截服务也只改它自己的支持判断和开关读写，不碰其他电话功能。
 
 模块没有定时轮询。
 
 ## 恢复手机管家 AI 反诈
 
-卸载模块前，可以在 root shell 中执行：
-
-```sh
-for c in $(pm dump com.coloros.phonemanager | sed -n '/disabledComponents:/,/enabledComponents:/p' | grep -E 'aivoicecalldetect|FraudDetectRuleFilePipeProvider'); do pm enable "com.coloros.phonemanager/$c"; done
-```
-
-然后卸载模块并重启。电话里的国家反诈中心拦截服务不需要单独恢复，模块停用后会按系统原本的状态工作。
+从 1.1.26 开始，模块会把旧版本停用过的手机管家组件恢复为系统清单默认状态。停用或卸载模块后重启，手机管家 AI 反诈和电话里的国家反诈中心拦截服务都会按系统原本的状态工作。
