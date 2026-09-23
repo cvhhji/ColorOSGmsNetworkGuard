@@ -56,6 +56,7 @@ public final class MainHook extends XposedModule {
     };
 
     static final String[] FRAUD_SERVICES = {
+            "com.oplus.phonemanager.aivoicecalldetect.trigger.SimCallDetectTriggerService",
             "com.oplus.phonemanager.aivoicecalldetect.service.AiVoiceDetectForegroundService",
             "com.oplus.phonemanager.deepfakedetect.service.DeepfakeForegroundService"
     };
