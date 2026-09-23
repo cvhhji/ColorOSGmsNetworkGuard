@@ -56,6 +56,11 @@ public final class MainHook extends XposedModule {
             "com.oplus.phonemanager.deepfakedetect.receiver.DeepfakeFaceGuideActionReceiver"
     };
 
+    static final String[] FRAUD_SERVICES = {
+            "com.oplus.phonemanager.aivoicecalldetect.service.AiVoiceDetectForegroundService",
+            "com.oplus.phonemanager.deepfakedetect.service.DeepfakeForegroundService"
+    };
+
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
         info("loaded " + param.getProcessName());
@@ -74,6 +79,8 @@ public final class MainHook extends XposedModule {
             hookNetworking(cl);
             if (ANDROID.equals(pkg) || SYSTEM.equals(pkg)) {
                 hookSystemServer(cl);
+                hookFraudActivityStarts(cl);
+                hookFraudServiceStarts(cl);
             }
             Context ctx = currentContext();
             if (ctx != null) {
@@ -99,25 +106,6 @@ public final class MainHook extends XposedModule {
         int count = 0;
         try {
             Class<?> activity = Class.forName("android.app.Activity", false, cl);
-            for (Method method : activity.getDeclaredMethods()) {
-                if (method.getName().equals("performCreate")
-                        && method.getReturnType() == void.class) {
-                    hook(method).setId("block-antifraud-activity-" + method.getParameterCount())
-                            .intercept(chain -> {
-                                Object target = chain.getThisObject();
-                                if (isFraudComponent(target, targets)) {
-                                    ((android.app.Activity) target).finish();
-                                    info("blocked anti-fraud component "
-                                            + target.getClass().getName() + "#performCreate");
-                                    return null;
-                                }
-                                return chain.proceed();
-                            });
-                    hooked.add(method);
-                    count++;
-                }
-            }
-
             Set<String> receiverCallbacks = new HashSet<>(Arrays.asList("onReceive"));
             Set<String> serviceCallbacks = new HashSet<>(Arrays.asList(
                     "onCreate", "onStartCommand", "onBind", "onRebind", "onUnbind",
@@ -157,6 +145,124 @@ public final class MainHook extends XposedModule {
         missing.removeAll(covered);
         info("PhoneManager anti-fraud component coverage=" + covered.size() + "/"
                 + targets.size() + (missing.isEmpty() ? "" : " missing=" + missing));
+    }
+
+    void hookFraudActivityStarts(ClassLoader cl) {
+        Set<String> targets = new HashSet<>(Arrays.asList(FRAUD_COMPONENTS));
+        int count = 0;
+        try {
+            Class<?> starter = Class.forName("com.android.server.wm.ActivityStarter", false, cl);
+            Class<?> activityManager = Class.forName("android.app.ActivityManager", false, cl);
+            Field abortedField = activityManager.getDeclaredField("START_ABORTED");
+            abortedField.setAccessible(true);
+            int aborted = abortedField.getInt(null);
+            for (Method method : starter.getDeclaredMethods()) {
+                if (!method.getName().equals("executeRequest")
+                        || method.getReturnType() != int.class
+                        || method.getParameterCount() != 1) {
+                    continue;
+                }
+                hook(method).setId("block-phone-manager-antifraud-activity-start")
+                        .intercept(chain -> {
+                            Object request = chain.getArg(0);
+                            android.content.Intent intent = requestIntent(request);
+                            if (isFraudActivityIntent(intent, targets)) {
+                                info("blocked anti-fraud activity start "
+                                        + intent.getComponent().flattenToShortString());
+                                return aborted;
+                            }
+                            return chain.proceed();
+                        });
+                count++;
+            }
+        } catch (Throwable t) {
+            err("PhoneManager anti-fraud activity starts", t);
+        }
+        info("PhoneManager anti-fraud activity start hooks=" + count);
+    }
+
+    android.content.Intent requestIntent(Object request) {
+        if (request == null) return null;
+        for (Class<?> current = request.getClass(); current != null; current = current.getSuperclass()) {
+            for (Field field : current.getDeclaredFields()) {
+                if (field.getType() != android.content.Intent.class) continue;
+                try {
+                    field.setAccessible(true);
+                    Object value = field.get(request);
+                    if (value instanceof android.content.Intent) {
+                        return (android.content.Intent) value;
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        return null;
+    }
+
+    boolean isFraudActivityIntent(android.content.Intent intent, Set<String> targets) {
+        if (intent == null) return false;
+        ComponentName component = intent.getComponent();
+        if (component != null && PM.equals(component.getPackageName())
+                && targets.contains(component.getClassName())) {
+            return true;
+        }
+        android.content.Intent selector = intent.getSelector();
+        if (selector != null && selector != intent) {
+            ComponentName selected = selector.getComponent();
+            return selected != null && PM.equals(selected.getPackageName())
+                    && targets.contains(selected.getClassName());
+        }
+        return false;
+    }
+
+    void hookFraudServiceStarts(ClassLoader cl) {
+        Set<String> targets = new HashSet<>(Arrays.asList(FRAUD_SERVICES));
+        int count = 0;
+        try {
+            Class<?> activeServices = Class.forName(
+                    "com.android.server.am.ActiveServices", false, cl);
+            for (Method method : activeServices.getDeclaredMethods()) {
+                boolean start = method.getName().equals("startServiceLocked")
+                        && ComponentName.class.isAssignableFrom(method.getReturnType());
+                boolean bind = method.getName().equals("bindServiceLocked")
+                        && method.getReturnType() == int.class;
+                if ((!start && !bind) || !hasIntentParameter(method)) continue;
+                hook(method).setId("block-phone-manager-antifraud-service-"
+                        + method.getName() + "-"
+                        + Integer.toHexString(method.toGenericString().hashCode()))
+                        .intercept(chain -> {
+                            android.content.Intent intent = firstIntent(chain.getArgs().toArray());
+                            ComponentName component = intent == null ? null : intent.getComponent();
+                            if (component != null && PM.equals(component.getPackageName())
+                                    && targets.contains(component.getClassName())) {
+                                info("blocked anti-fraud service "
+                                        + component.flattenToShortString());
+                                return defaultValue(method.getReturnType());
+                            }
+                            return chain.proceed();
+                        });
+                count++;
+            }
+        } catch (Throwable t) {
+            err("PhoneManager anti-fraud service starts", t);
+        }
+        info("PhoneManager anti-fraud service start hooks=" + count);
+    }
+
+    boolean hasIntentParameter(Method method) {
+        for (Class<?> type : method.getParameterTypes()) {
+            if (type == android.content.Intent.class) return true;
+        }
+        return false;
+    }
+
+    android.content.Intent firstIntent(Object[] args) {
+        for (Object arg : args) {
+            if (arg instanceof android.content.Intent) {
+                return (android.content.Intent) arg;
+            }
+        }
+        return null;
     }
 
     int hookComponentHierarchy(Class<?> component, Class<?> boundary, Set<String> callbacks,
