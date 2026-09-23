@@ -9,6 +9,7 @@ import android.util.Log;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -88,11 +89,128 @@ public final class MainHook extends XposedModule {
         if (PM.equals(pkg)) {
             hookFraudComponentStateWrites(cl);
             hookPhoneManagerAntiFraud(cl);
+            hookFraudComponentCallbacks(cl);
             Context ctx = currentContext();
             if (ctx != null) {
                 restoreFraudComponents(ctx);
             }
         }
+    }
+
+    void hookFraudComponentCallbacks(ClassLoader cl) {
+        Set<String> targets = new HashSet<>(Arrays.asList(LEGACY_FRAUD_COMPONENTS));
+        Set<String> covered = new HashSet<>();
+        Set<Method> hooked = new HashSet<>();
+        int count = 0;
+        try {
+            Class<?> activity = Class.forName("android.app.Activity", false, cl);
+            for (Method method : activity.getDeclaredMethods()) {
+                if (method.getName().equals("performCreate")
+                        && method.getReturnType() == void.class) {
+                    hook(method).setId("block-antifraud-activity-" + method.getParameterCount())
+                            .intercept(chain -> {
+                                Object target = chain.getThisObject();
+                                if (isFraudComponent(target, targets)) {
+                                    ((android.app.Activity) target).finish();
+                                    info("blocked anti-fraud component "
+                                            + target.getClass().getName() + "#performCreate");
+                                    return null;
+                                }
+                                return chain.proceed();
+                            });
+                    hooked.add(method);
+                    count++;
+                }
+            }
+
+            Set<String> receiverCallbacks = new HashSet<>(Arrays.asList("onReceive"));
+            Set<String> serviceCallbacks = new HashSet<>(Arrays.asList(
+                    "onCreate", "onStartCommand", "onBind", "onRebind", "onUnbind",
+                    "onTaskRemoved", "onCallAdded", "onCallRemoved"));
+            Set<String> providerCallbacks = new HashSet<>(Arrays.asList(
+                    "onCreate", "query", "insert", "update", "delete", "bulkInsert",
+                    "call", "openFile", "openAssetFile", "openTypedAssetFile", "getType",
+                    "canonicalize", "uncanonicalize", "refresh"));
+
+            Class<?> receiver = Class.forName("android.content.BroadcastReceiver", false, cl);
+            Class<?> service = Class.forName("android.app.Service", false, cl);
+            Class<?> provider = Class.forName("android.content.ContentProvider", false, cl);
+
+            for (String className : LEGACY_FRAUD_COMPONENTS) {
+                Class<?> component = Class.forName(className, false, cl);
+                if (activity.isAssignableFrom(component)) {
+                    covered.add(className);
+                } else if (receiver.isAssignableFrom(component)) {
+                    count += hookComponentHierarchy(component, receiver, receiverCallbacks,
+                            targets, hooked);
+                    covered.add(className);
+                } else if (service.isAssignableFrom(component)) {
+                    count += hookComponentHierarchy(component, service, serviceCallbacks,
+                            targets, hooked);
+                    covered.add(className);
+                } else if (provider.isAssignableFrom(component)) {
+                    count += hookComponentHierarchy(component, provider, providerCallbacks,
+                            targets, hooked);
+                    covered.add(className);
+                }
+            }
+        } catch (Throwable t) {
+            err("PhoneManager component callbacks", t);
+        }
+        info("PhoneManager component callback hooks=" + count);
+        Set<String> missing = new HashSet<>(targets);
+        missing.removeAll(covered);
+        info("PhoneManager anti-fraud component coverage=" + covered.size() + "/"
+                + targets.size() + (missing.isEmpty() ? "" : " missing=" + missing));
+    }
+
+    int hookComponentHierarchy(Class<?> component, Class<?> boundary, Set<String> callbacks,
+                               Set<String> targets, Set<Method> hooked) {
+        int count = 0;
+        for (Class<?> current = component;
+             current != null && boundary.isAssignableFrom(current);
+             current = current.getSuperclass()) {
+            for (Method method : current.getDeclaredMethods()) {
+                int modifiers = method.getModifiers();
+                if (!callbacks.contains(method.getName())
+                        || Modifier.isAbstract(modifiers)
+                        || Modifier.isStatic(modifiers)
+                        || hooked.contains(method)) {
+                    continue;
+                }
+                String id = "block-antifraud-callback-" + current.getName() + "-"
+                        + method.getName() + "-" + method.getParameterCount();
+                hook(method).setId(id).intercept(chain -> {
+                    Object target = chain.getThisObject();
+                    if (isFraudComponent(target, targets)) {
+                        info("blocked anti-fraud component " + target.getClass().getName()
+                                + "#" + method.getName());
+                        return defaultValue(method.getReturnType());
+                    }
+                    return chain.proceed();
+                });
+                hooked.add(method);
+                count++;
+            }
+        }
+        return count;
+    }
+
+    boolean isFraudComponent(Object target, Set<String> targets) {
+        return target != null && targets.contains(target.getClass().getName());
+    }
+
+    Object defaultValue(Class<?> type) {
+        if (!type.isPrimitive() || type == void.class) return null;
+        if (type == boolean.class) return false;
+        if (type == char.class) return (char) 0;
+        if (type == byte.class) return (byte) 0;
+        if (type == short.class) return (short) 0;
+        if (type == int.class) return 0;
+        if (type == long.class) return 0L;
+        if (type == float.class) return 0F;
+        if (type == double.class) return 0D;
+        return null;
     }
 
     void hookFraudComponentStateWrites(ClassLoader cl) {
