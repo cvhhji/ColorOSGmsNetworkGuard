@@ -26,6 +26,25 @@ public final class MainHook extends XposedModule {
     static final String BLACKLIST = "com.oplus.blacklistapp";
     static final String SECURITY_GUARD = "com.coloros.securityguard";
     static final String SAFE_CENTER = "com.oplus.safecenter";
+    static final String GMS = "com.google.android.gms";
+    static final String PERMISSION_CONTROLLER = "com.android.permissioncontroller";
+    static final String PACKAGE_INSTALLER = "com.android.packageinstaller";
+
+    static final Set<String> ANDROID_ANTI_FRAUD_FLAGS = new HashSet<>(Arrays.asList(
+            "enhancedConfirmationModeApisEnabled",
+            "enhancedConfirmationInCallApisEnabled",
+            "unknownCallPackageInstallBlockingEnabled"
+    ));
+
+    static final Set<String> GOOGLE_FRAUD_SERVICES = new HashSet<>(Arrays.asList(
+            "com.google.android.gms/com.google.android.gms.bankscamwarning.services.BankScamCallDetectionService",
+            "com.google.android.gms/com.google.android.gms.fraudprotect.service.CallDetectionService"
+    ));
+
+    static final Set<String> IN_CALL_ANTI_FRAUD_SERVICES = new HashSet<>(Arrays.asList(
+            "com.google.android.gms/com.google.android.gms.bankscamwarning.services.BankScamCallDetectionService",
+            "android/com.android.ecm.EnhancedConfirmationCallTrackerService"
+    ));
 
     static final Set<String> GOOGLE = new HashSet<>(Arrays.asList(
             "com.google.android.gms",
@@ -85,6 +104,15 @@ public final class MainHook extends XposedModule {
 
         if ("com.android.server.telecom".equals(pkg)) {
             hookTelecomAntiFraud(cl);
+            hookAntiFraudInCallServiceDiscovery(cl);
+        }
+
+        if (GMS.equals(pkg)) {
+            hookGoogleAntiFraudServices(cl);
+        }
+
+        if (PERMISSION_CONTROLLER.equals(pkg) || PACKAGE_INSTALLER.equals(pkg)) {
+            hookAndroidAntiFraudFlags(cl);
         }
 
         if (SECURITY_GUARD.equals(pkg)) {
@@ -125,6 +153,131 @@ public final class MainHook extends XposedModule {
         hookSystemServer(cl);
         hookFraudActivityStarts(cl);
         hookFraudServiceStarts(cl);
+        hookAndroidAntiFraudFlags(cl);
+    }
+
+    void hookAndroidAntiFraudFlags(ClassLoader cl) {
+        int count = 0;
+        try {
+            Class<?> flags = Class.forName("android.permission.flags.Flags", false, cl);
+            for (Method method : flags.getDeclaredMethods()) {
+                if (!ANDROID_ANTI_FRAUD_FLAGS.contains(method.getName())
+                        || method.getParameterCount() != 0
+                        || method.getReturnType() != boolean.class
+                        || !Modifier.isStatic(method.getModifiers())) {
+                    continue;
+                }
+                hook(method).setId("disable-android-antifraud-flag-" + method.getName())
+                        .intercept(chain -> {
+                            info("disabled Android call-protection flag " + method.getName());
+                            return false;
+                        });
+                count++;
+            }
+        } catch (Throwable t) {
+            err("Android anti-fraud feature flags", t);
+        }
+        info("Android anti-fraud feature flag hooks=" + count);
+    }
+
+    void hookGoogleAntiFraudServices(ClassLoader cl) {
+        Set<String> targets = new HashSet<>(Arrays.asList(
+                "com.google.android.gms.bankscamwarning.services.BankScamCallDetectionService",
+                "com.google.android.gms.fraudprotect.service.CallDetectionService"
+        ));
+        Set<String> callbacks = new HashSet<>(Arrays.asList(
+                "onCreate", "onStartCommand", "onBind", "onRebind", "onUnbind"
+        ));
+        Set<Method> hooked = new HashSet<>();
+        Set<String> covered = new HashSet<>();
+        int count = 0;
+        try {
+            Class<?> service = Class.forName("android.app.Service", false, cl);
+            for (String className : targets) {
+                try {
+                    Class<?> component = Class.forName(className, false, cl);
+                    if (service.isAssignableFrom(component)) {
+                        count += hookComponentHierarchy(component, service, callbacks,
+                                targets, hooked);
+                        covered.add(className);
+                    }
+                } catch (ClassNotFoundException ignored) {
+                }
+            }
+        } catch (Throwable t) {
+            err("Google anti-fraud service callbacks", t);
+        }
+        info("Google anti-fraud service callback coverage=" + covered.size() + "/"
+                + targets.size() + " hooks=" + count);
+    }
+
+    void hookAntiFraudInCallServiceDiscovery(ClassLoader cl) {
+        int count = 0;
+        try {
+            Class<?> controller = Class.forName(
+                    "com.android.server.telecom.InCallController", false, cl);
+            for (Method method : controller.getDeclaredMethods()) {
+                if (!method.getName().equals("getInCallServiceComponents")
+                        || !List.class.isAssignableFrom(method.getReturnType())) {
+                    continue;
+                }
+                hook(method).setId("exclude-antifraud-incall-service-"
+                        + Integer.toHexString(method.toGenericString().hashCode()))
+                        .intercept(chain -> {
+                            Object result = chain.proceed();
+                            if (!(result instanceof List)) {
+                                return result;
+                            }
+                            List<?> services = (List<?>) result;
+                            ArrayList<Object> filtered = new ArrayList<>(services.size());
+                            boolean removed = false;
+                            for (Object service : services) {
+                                ComponentName component = inCallServiceComponent(service);
+                                if (component != null && IN_CALL_ANTI_FRAUD_SERVICES
+                                        .contains(component.flattenToShortString())) {
+                                    info("excluded anti-fraud InCallService "
+                                            + component.flattenToShortString());
+                                    removed = true;
+                                } else {
+                                    filtered.add(service);
+                                }
+                            }
+                            return removed ? filtered : result;
+                        });
+                count++;
+            }
+        } catch (Throwable t) {
+            err("Telecom anti-fraud InCallService discovery", t);
+        }
+        info("Telecom anti-fraud InCallService filters=" + count);
+    }
+
+    ComponentName inCallServiceComponent(Object service) {
+        if (service == null) return null;
+        for (Class<?> current = service.getClass(); current != null;
+             current = current.getSuperclass()) {
+            try {
+                Method getter = current.getDeclaredMethod("getComponentName");
+                getter.setAccessible(true);
+                Object value = getter.invoke(service);
+                if (value instanceof ComponentName) {
+                    return (ComponentName) value;
+                }
+            } catch (Throwable ignored) {
+            }
+            try {
+                Field field = current.getDeclaredField("mComponentName");
+                if (field.getType() == ComponentName.class) {
+                    field.setAccessible(true);
+                    Object value = field.get(service);
+                    if (value instanceof ComponentName) {
+                        return (ComponentName) value;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
     }
 
     void hookFraudComponentCallbacks(ClassLoader cl) {
@@ -261,8 +414,10 @@ public final class MainHook extends XposedModule {
                         .intercept(chain -> {
                             android.content.Intent intent = firstIntent(chain.getArgs().toArray());
                             ComponentName component = intent == null ? null : intent.getComponent();
-                            if (component != null && PM.equals(component.getPackageName())
-                                    && targets.contains(component.getClassName())) {
+                            if (component != null && ((PM.equals(component.getPackageName())
+                                    && targets.contains(component.getClassName()))
+                                    || GOOGLE_FRAUD_SERVICES.contains(
+                                            component.flattenToShortString()))) {
                                 info("blocked anti-fraud service "
                                         + component.flattenToShortString());
                                 return defaultValue(method.getReturnType());
