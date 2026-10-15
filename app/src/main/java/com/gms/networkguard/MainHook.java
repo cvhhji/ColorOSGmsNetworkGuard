@@ -3,6 +3,7 @@ package com.gms.networkguard;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -23,6 +24,8 @@ public final class MainHook extends XposedModule {
     static final String TAG = "GmsAntiFraudGuard";
     static final String PM = "com.coloros.phonemanager";
     static final String BLACKLIST = "com.oplus.blacklistapp";
+    static final String SECURITY_GUARD = "com.coloros.securityguard";
+    static final String SAFE_CENTER = "com.oplus.safecenter";
 
     static final Set<String> GOOGLE = new HashSet<>(Arrays.asList(
             "com.google.android.gms",
@@ -73,6 +76,27 @@ public final class MainHook extends XposedModule {
 
         if (BLACKLIST.equals(pkg)) {
             hookNationalAntiFraud(cl);
+            hookFraudNumberIntercept(cl);
+        }
+
+        if ("com.android.phone".equals(pkg)) {
+            hookPhoneAntiFraudSettings(cl);
+        }
+
+        if ("com.android.server.telecom".equals(pkg)) {
+            hookTelecomAntiFraud(cl);
+        }
+
+        if (SECURITY_GUARD.equals(pkg)) {
+            hookSecurityGuardAntiFraud(cl);
+        }
+
+        if (SAFE_CENTER.equals(pkg)) {
+            hookSafeCenterAntiFraud(cl);
+        }
+
+        if ("com.oplus.securitypermission".equals(pkg)) {
+            hookAntiFraudSettingsEntry(cl);
         }
 
         if ("com.oplus.battery".equals(pkg)) {
@@ -413,6 +437,244 @@ public final class MainHook extends XposedModule {
             err("National Anti-Fraud Center", t);
         }
         info("National Anti-Fraud Center hooks=" + count);
+    }
+
+    void hookFraudNumberIntercept(ClassLoader cl) {
+        int count = 0;
+        try {
+            Class<?> feature = Class.forName("com.oplus.feature.LazyLoadFeatureOption", false, cl);
+            for (Method method : feature.getDeclaredMethods()) {
+                if (method.getName().equals("C0")
+                        && method.getParameterCount() == 0
+                        && method.getReturnType() == boolean.class) {
+                    hook(method).setId("disable-blacklist-antifraud-sequence-support")
+                            .intercept(chain -> false);
+                    count++;
+                }
+            }
+        } catch (Throwable t) {
+            err("BlackListApp anti-fraud support", t);
+        }
+        try {
+            Class<?> policy = Class.forName("P4.f", false, cl);
+            for (Method method : policy.getDeclaredMethods()) {
+                Class<?>[] params = method.getParameterTypes();
+                if (method.getName().equals("N")
+                        && method.getReturnType() == boolean.class
+                        && params.length == 2
+                        && params[0] == Context.class
+                        && params[1] == int.class) {
+                    hook(method).setId("disable-suspected-fraud-number-intercept")
+                            .intercept(chain -> false);
+                    count++;
+                }
+            }
+        } catch (Throwable t) {
+            err("BlackListApp suspected-fraud number intercept", t);
+        }
+        info("BlackListApp fraud number hooks=" + count);
+    }
+
+    void hookPhoneAntiFraudSettings(ClassLoader cl) {
+        int count = 0;
+        try {
+            Class<?> fragment = Class.forName(
+                    "com.android.phone.OplusCallFeaturesSetting$OplusCallFeaturesSettingFragment",
+                    false, cl);
+            for (Method method : fragment.getDeclaredMethods()) {
+                if (method.getName().equals("showAIAntiFraudPreference")
+                        && method.getParameterCount() == 0
+                        && method.getReturnType() == void.class) {
+                    hook(method).setId("hide-phone-ai-antifraud-setting")
+                            .intercept(chain -> null);
+                    count++;
+                } else if (method.getName().equals("isShowAIVoiceDetectionToggle")
+                        && method.getParameterCount() == 0
+                        && method.getReturnType() == Boolean.class) {
+                    hook(method).setId("hide-phone-ai-voice-detection-setting")
+                            .intercept(chain -> Boolean.FALSE);
+                    count++;
+                }
+            }
+        } catch (Throwable t) {
+            err("Phone anti-fraud settings", t);
+        }
+        info("Phone anti-fraud settings hooks=" + count);
+    }
+
+    void hookTelecomAntiFraud(ClassLoader cl) {
+        int count = 0;
+        try {
+            Class<?> telecomCall = Class.forName("com.android.server.telecom.Call", false, cl);
+            Class<?> manager = Class.forName("com.android.server.telecom.p5", false, cl);
+            for (Method method : manager.getDeclaredMethods()) {
+                if (method.getName().equals("C")
+                        && method.getReturnType() == void.class
+                        && method.getParameterCount() == 1
+                        && method.getParameterTypes()[0] == telecomCall) {
+                    hook(method).setId("disable-telecom-antifraud-center-call-intercept")
+                            .intercept(chain -> {
+                                info("prevented Telecom anti-fraud-center call interception");
+                                return null;
+                            });
+                    count++;
+                }
+            }
+        } catch (Throwable t) {
+            err("Telecom anti-fraud-center call intercept", t);
+        }
+        try {
+            Class<?> support = Class.forName("com.android.server.telecom.oplus.m1", false, cl);
+            for (Method method : support.getDeclaredMethods()) {
+                if (method.getName().equals("b")
+                        && method.getReturnType() == Boolean.class
+                        && method.getParameterCount() == 1
+                        && method.getParameterTypes()[0] == Context.class) {
+                    hook(method).setId("disable-telecom-antifraud-sequence-support")
+                            .intercept(chain -> Boolean.FALSE);
+                    count++;
+                }
+            }
+        } catch (Throwable t) {
+            err("Telecom anti-fraud support", t);
+        }
+        try {
+            Class<?> events = Class.forName("com.android.server.telecom.z1", false, cl);
+            for (Method method : events.getDeclaredMethods()) {
+                Class<?>[] params = method.getParameterTypes();
+                if (method.getName().equals("t3")
+                        && method.getReturnType() == void.class
+                        && params.length == 3
+                        && params[0] == String.class
+                        && params[1] == Bundle.class
+                        && params[2] == Boolean.class) {
+                    hook(method).setId("disable-telecom-ai-antifraud-events")
+                            .intercept(chain -> {
+                                Object event = chain.getArg(0);
+                                if ("android.telecom.event.AI_CALL_ANTI_FRAUD".equals(event)
+                                        || "android.telecom.event.AI_voice_detect".equals(event)) {
+                                    info("blocked Telecom anti-fraud event " + event);
+                                    return null;
+                                }
+                                return chain.proceed();
+                            });
+                    count++;
+                }
+            }
+        } catch (Throwable t) {
+            err("Telecom AI anti-fraud events", t);
+        }
+        info("Telecom anti-fraud hooks=" + count);
+    }
+
+    void hookSecurityGuardAntiFraud(ClassLoader cl) {
+        int count = 0;
+        try {
+            Class<?> switches = Class.forName(
+                    "com.oplus.securityguard.antifraud.AntiFraudSeqSwitchHelper", false, cl);
+            for (Method method : switches.getDeclaredMethods()) {
+                if ((method.getName().equals("d") || method.getName().equals("e"))
+                        && method.getParameterCount() == 0
+                        && method.getReturnType() == boolean.class) {
+                    hook(method).setId("disable-securityguard-antifraud-switch-" + method.getName())
+                            .intercept(chain -> false);
+                    count++;
+                }
+            }
+        } catch (Throwable t) {
+            err("SecurityGuard anti-fraud switch", t);
+        }
+        try {
+            Class<?> engine = Class.forName(
+                    "com.oplus.securityguard.antifraud.detect.engine.FraudDetectEngine",
+                    false, cl);
+            for (Method method : engine.getDeclaredMethods()) {
+                if (method.getName().equals("c")
+                        && method.getParameterCount() == 1
+                        && method.getReturnType() == void.class) {
+                    hook(method).setId("disable-securityguard-fraud-sequence-detection")
+                            .intercept(chain -> null);
+                    count++;
+                }
+            }
+        } catch (Throwable t) {
+            err("SecurityGuard fraud sequence engine", t);
+        }
+        try {
+            Class<?> provider = Class.forName(
+                    "com.oplus.securityguard.antifraud.data.collection.AppSwitchNotifyProvider",
+                    false, cl);
+            for (Method method : provider.getDeclaredMethods()) {
+                Class<?>[] params = method.getParameterTypes();
+                if (method.getName().equals("call")
+                        && method.getReturnType() == Bundle.class
+                        && params.length == 3
+                        && params[0] == String.class
+                        && params[1] == String.class
+                        && params[2] == Bundle.class) {
+                    hook(method).setId("disable-securityguard-antifraud-app-events")
+                            .intercept(chain -> new Bundle());
+                    count++;
+                }
+            }
+        } catch (Throwable t) {
+            err("SecurityGuard anti-fraud app events", t);
+        }
+        info("SecurityGuard anti-fraud hooks=" + count);
+    }
+
+    void hookSafeCenterAntiFraud(ClassLoader cl) {
+        int count = 0;
+        try {
+            Class<?> provider = Class.forName(
+                    "com.oplus.safecenter.accessibility.provider.FraudRiskProvider", false, cl);
+            for (Method method : provider.getDeclaredMethods()) {
+                Class<?>[] params = method.getParameterTypes();
+                if (method.getName().equals("call")
+                        && method.getReturnType() == Bundle.class
+                        && params.length == 3
+                        && params[0] == String.class
+                        && params[1] == String.class
+                        && params[2] == Bundle.class) {
+                    hook(method).setId("disable-safecenter-antifraud-actions")
+                            .intercept(chain -> {
+                                Object action = chain.getArg(0);
+                                if (action instanceof String
+                                        && ((String) action).startsWith("trigger_")) {
+                                    info("blocked SafeCenter anti-fraud action " + action);
+                                    return new Bundle();
+                                }
+                                return chain.proceed();
+                            });
+                    count++;
+                }
+            }
+        } catch (Throwable t) {
+            err("SafeCenter anti-fraud actions", t);
+        }
+        info("SafeCenter anti-fraud hooks=" + count);
+    }
+
+    void hookAntiFraudSettingsEntry(ClassLoader cl) {
+        int count = 0;
+        try {
+            Class<?> controller = Class.forName(
+                    "com.oplusos.securitypermission.privacy.controller.AntifraudProtectionController",
+                    false, cl);
+            for (Method method : controller.getDeclaredMethods()) {
+                if (method.getName().equals("isPreferenceAvailable")
+                        && method.getReturnType() == boolean.class
+                        && method.getParameterCount() == 1
+                        && method.getParameterTypes()[0] == Context.class) {
+                    hook(method).setId("hide-securitypermission-antifraud-entry")
+                            .intercept(chain -> false);
+                    count++;
+                }
+            }
+        } catch (Throwable t) {
+            err("SecurityPermission anti-fraud setting", t);
+        }
+        info("SecurityPermission anti-fraud setting hooks=" + count);
     }
 
     static Context currentContext() {
