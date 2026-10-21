@@ -104,6 +104,10 @@ public final class MainHook extends XposedModule {
         String pkg = param.getPackageName();
         ClassLoader cl = param.getClassLoader();
 
+        if ("com.android.providers.settings".equals(pkg)) {
+            new SystemStateVisibilityHooks(this).installSettingsProvider(cl);
+        }
+
         if (BLACKLIST.equals(pkg)) {
             hookNationalAntiFraud(cl);
             hookFraudNumberIntercept(cl);
@@ -161,6 +165,7 @@ public final class MainHook extends XposedModule {
         hookFraudActivityStarts(cl);
         hookFraudServiceStarts(cl);
         hookAndroidAntiFraudFlags(cl);
+        new SystemStateVisibilityHooks(this).installAccessibility(cl);
     }
 
     void hookAndroidAntiFraudFlags(ClassLoader cl) {
