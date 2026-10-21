@@ -32,7 +32,6 @@ public final class MainHook extends XposedModule {
     static final String PACKAGE_INSTALLER = "com.android.packageinstaller";
 
     static final Set<String> ANDROID_ANTI_FRAUD_FLAGS = new HashSet<>(Arrays.asList(
-            "enhancedConfirmationModeApisEnabled",
             "enhancedConfirmationInCallApisEnabled",
             "unknownCallPackageInstallBlockingEnabled"
     ));
@@ -44,7 +43,6 @@ public final class MainHook extends XposedModule {
     };
 
     static final Set<String> ANDROID_ANTI_FRAUD_DEVICE_CONFIG_FLAGS = new HashSet<>(Arrays.asList(
-            "android.permission.flags.enhanced_confirmation_mode_apis_enabled",
             "android.permission.flags.enhanced_confirmation_in_call_apis_enabled",
             "android.permission.flags.unknown_call_package_install_blocking_enabled"
     ));
