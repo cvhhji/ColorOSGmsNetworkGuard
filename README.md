@@ -13,7 +13,7 @@
 ## 使用方法
 
 1. 下载 APK 并安装。
-2. 在 LSPosed 中启用模块，使用模块推荐的作用域。
+2. 在 LSPosed 中启用模块，使用模块推荐的作用域；不要勾选 Google Play 服务。
 3. 重启手机。
 
 ## 适配情况
@@ -28,7 +28,7 @@
 
 ## 大致原理
 
-GMS 联网部分会拦截 ColorOS 的网络策略调用，并在开机、网络变化或 GMS 包更新后清理已有的限制。Android 17 使用新的 `OAppNetControlManager` 接口，模块会同时兼容新旧两套接口。
+GMS 联网部分由 system_server 和电池管理进程处理，不需要在 Google Play 服务进程里加载模块。Google Play 服务的反诈检测服务也由 system_server 和 Telecom 拦截。Android 17 使用新的 `OAppNetControlManager` 接口，模块会同时兼容新旧两套接口。
 
 模块按组件和功能入口处理反诈，不会停用整个电话、Google Play 服务、安装器、权限控制器、手机管家、安全卫士或安全中心。Telecom 不再绑定 Google 银行诈骗来电检测和 Android 增强确认跟踪服务；Android 相关功能标志只在读取时返回关闭，不改写 DeviceConfig。黑名单应用只关闭国家反诈中心服务和疑似诈骗号码规则，普通骚扰拦截仍由系统处理。安全卫士的诈骗行为序列检测及安全中心对应的辅助功能风险动作也会被拦截。
 

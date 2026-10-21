@@ -27,7 +27,6 @@ public final class MainHook extends XposedModule {
     static final String BLACKLIST = "com.oplus.blacklistapp";
     static final String SECURITY_GUARD = "com.coloros.securityguard";
     static final String SAFE_CENTER = "com.oplus.safecenter";
-    static final String GMS = "com.google.android.gms";
     static final String PERMISSION_CONTROLLER = "com.android.permissioncontroller";
     static final String PACKAGE_INSTALLER = "com.android.packageinstaller";
 
@@ -117,10 +116,6 @@ public final class MainHook extends XposedModule {
         if ("com.android.server.telecom".equals(pkg)) {
             hookTelecomAntiFraud(cl);
             hookAntiFraudInCallServiceDiscovery(cl);
-        }
-
-        if (GMS.equals(pkg)) {
-            hookGoogleAntiFraudServices(cl);
         }
 
         if (PERMISSION_CONTROLLER.equals(pkg) || PACKAGE_INSTALLER.equals(pkg)) {
@@ -225,37 +220,6 @@ public final class MainHook extends XposedModule {
         }
         info("Android anti-fraud feature flag hooks=" + flagHooks
                 + " DeviceConfig hooks=" + deviceConfigHooks);
-    }
-
-    void hookGoogleAntiFraudServices(ClassLoader cl) {
-        Set<String> targets = new HashSet<>(Arrays.asList(
-                "com.google.android.gms.bankscamwarning.services.BankScamCallDetectionService",
-                "com.google.android.gms.fraudprotect.service.CallDetectionService"
-        ));
-        Set<String> callbacks = new HashSet<>(Arrays.asList(
-                "onCreate", "onStartCommand", "onBind", "onRebind", "onUnbind"
-        ));
-        Set<Method> hooked = new HashSet<>();
-        Set<String> covered = new HashSet<>();
-        int count = 0;
-        try {
-            Class<?> service = Class.forName("android.app.Service", false, cl);
-            for (String className : targets) {
-                try {
-                    Class<?> component = Class.forName(className, false, cl);
-                    if (service.isAssignableFrom(component)) {
-                        count += hookComponentHierarchy(component, service, callbacks,
-                                targets, hooked);
-                        covered.add(className);
-                    }
-                } catch (ClassNotFoundException ignored) {
-                }
-            }
-        } catch (Throwable t) {
-            err("Google anti-fraud service callbacks", t);
-        }
-        info("Google anti-fraud service callback coverage=" + covered.size() + "/"
-                + targets.size() + " hooks=" + count);
     }
 
     void hookAntiFraudInCallServiceDiscovery(ClassLoader cl) {
