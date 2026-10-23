@@ -23,11 +23,11 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.10.2'
+          gradle-version: '9.4.1'
 
       - name: Calculate next version
         id: version
@@ -62,7 +62,7 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
-          gradle :app:assembleRelease --stacktrace \
+          gradle :app:testDebugUnitTest :app:lintDebug :app:assembleRelease --stacktrace \
             -PVERSION_NAME=${{ steps.version.outputs.name }} \
             -PVERSION_CODE=${{ steps.version.outputs.code }}
           cp app/build/outputs/apk/release/app-release.apk \

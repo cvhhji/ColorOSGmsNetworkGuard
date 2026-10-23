@@ -1,0 +1,15 @@
+{
+  "profile": "product-admin",
+  "locale": "zh-CN",
+  "canonicalMap": "DESIGN.md",
+  "sourceRoots": ["app/src/main/java", "app/src/main/res"],
+  "requiredCapabilities": ["Form", "Scrollbar"],
+  "requiredCommands": ["test", "lint"],
+  "commands": {
+    "test": "gradle :app:testDebugUnitTest",
+    "lint": "gradle :app:lintDebug"
+  },
+  "evidence": {
+    "failurePaths": "app/src/test/java/com/gms/networkguard/MainActivityTest.java"
+  }
+}

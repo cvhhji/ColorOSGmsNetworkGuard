@@ -1,5 +1,6 @@
 package com.gms.networkguard;
 
+import android.annotation.SuppressLint;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -19,9 +20,12 @@ import java.util.List;
 import java.util.Set;
 
 import io.github.libxposed.api.XposedModule;
+import io.github.libxposed.api.XposedInterface.Hooker;
 import io.github.libxposed.api.XposedModuleInterface.SystemServerStartingParam;
 
+@SuppressLint({"PrivateApi", "DiscouragedPrivateApi", "SoonBlockedPrivateApi"})
 public final class MainHook extends XposedModule {
+    private final GuardConfig config = new GuardConfig();
     static final String TAG = "GmsAntiFraudGuard";
     static final String PM = "com.coloros.phonemanager";
     static final String BLACKLIST = "com.oplus.blacklistapp";
@@ -96,11 +100,13 @@ public final class MainHook extends XposedModule {
 
     @Override
     public void onModuleLoaded(ModuleLoadedParam param) {
+        loadConfig();
         info("loaded " + param.getProcessName());
     }
 
     @Override
     public void onPackageReady(PackageReadyParam param) {
+        loadConfig();
         String pkg = param.getPackageName();
         ClassLoader cl = param.getClassLoader();
 
@@ -159,6 +165,7 @@ public final class MainHook extends XposedModule {
 
     @Override
     public void onSystemServerStarting(SystemServerStartingParam param) {
+        loadConfig();
         ClassLoader cl = param.getClassLoader();
         hookNetworking(cl);
         hookSystemServer(cl);
@@ -166,6 +173,23 @@ public final class MainHook extends XposedModule {
         hookFraudServiceStarts(cl);
         hookAndroidAntiFraudFlags(cl);
         new SystemStateVisibilityHooks(this).installAccessibility(cl);
+    }
+
+    private void loadConfig() {
+        if (config.isBound()) return;
+        try {
+            config.bind(getRemotePreferences(Feature.PREFERENCES));
+        } catch (Throwable error) {
+            err("feature preferences unavailable; keeping existing defaults", error);
+        }
+    }
+
+    private Hooker guard(Feature feature, Hooker hooker) {
+        return chain -> config.enabled(feature) ? hooker.intercept(chain) : chain.proceed();
+    }
+
+    int visibilityMask() {
+        return config.visibilityMask();
     }
 
     void hookAndroidAntiFraudFlags(ClassLoader cl) {
@@ -184,10 +208,10 @@ public final class MainHook extends XposedModule {
                         continue;
                     }
                     hook(method).setId("disable-android-antifraud-flag-" + method.getName())
-                            .intercept(chain -> {
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> {
                                 info("disabled Android call-protection flag " + method.getName());
                                 return false;
-                            });
+                            }));
                     classHooks++;
                 }
                 flagHooks += classHooks;
@@ -207,7 +231,7 @@ public final class MainHook extends XposedModule {
                     "getBoolean", String.class, String.class, boolean.class);
             if (Modifier.isStatic(method.getModifiers()) && method.getReturnType() == boolean.class) {
                 hook(method).setId("disable-android-antifraud-device-config-flags")
-                        .intercept(chain -> {
+                        .intercept(guard(Feature.ANTI_FRAUD, chain -> {
                             Object namespace = chain.getArg(0);
                             Object name = chain.getArg(1);
                             if ("permissions".equals(namespace)
@@ -217,7 +241,7 @@ public final class MainHook extends XposedModule {
                                 return false;
                             }
                             return chain.proceed();
-                        });
+                        }));
                 deviceConfigHooks++;
             }
         } catch (Throwable t) {
@@ -273,14 +297,14 @@ public final class MainHook extends XposedModule {
     }
 
     Object filterAntiFraudInCallServices(Object result, String source) {
+        if (!config.enabled(Feature.ANTI_FRAUD)) return result;
         if (!(result instanceof List)) return result;
         List<?> services = (List<?>) result;
         ArrayList<Object> filtered = new ArrayList<>(services.size());
         boolean removed = false;
         for (Object service : services) {
             ComponentName component = resolvedInCallServiceComponent(service);
-            if (component != null && IN_CALL_ANTI_FRAUD_SERVICES
-                    .contains(component.flattenToShortString())) {
+            if (matchesComponent(IN_CALL_ANTI_FRAUD_SERVICES, component)) {
                 info("excluded anti-fraud InCallService "
                         + component.flattenToShortString() + " via " + source);
                 removed = true;
@@ -289,6 +313,10 @@ public final class MainHook extends XposedModule {
             }
         }
         return removed ? filtered : result;
+    }
+
+    static boolean matchesComponent(Set<String> targets, ComponentName component) {
+        return component != null && targets.contains(component.flattenToString());
     }
 
     ComponentName resolvedInCallServiceComponent(Object service) {
@@ -393,7 +421,7 @@ public final class MainHook extends XposedModule {
                     continue;
                 }
                 hook(method).setId("block-phone-manager-antifraud-activity-start")
-                        .intercept(chain -> {
+                        .intercept(guard(Feature.HIDE_FRAUD_ENTRIES, chain -> {
                             Object request = chain.getArg(0);
                             android.content.Intent intent = requestIntent(request);
                             if (isFraudActivityIntent(intent, targets)) {
@@ -402,7 +430,7 @@ public final class MainHook extends XposedModule {
                                 return aborted;
                             }
                             return chain.proceed();
-                        });
+                        }));
                 count++;
             }
         } catch (Throwable t) {
@@ -460,19 +488,18 @@ public final class MainHook extends XposedModule {
                 hook(method).setId("block-antifraud-service-"
                         + method.getName() + "-"
                         + Integer.toHexString(method.toGenericString().hashCode()))
-                        .intercept(chain -> {
+                        .intercept(guard(Feature.ANTI_FRAUD, chain -> {
                             android.content.Intent intent = firstIntent(chain.getArgs().toArray());
                             ComponentName component = intent == null ? null : intent.getComponent();
                             if (component != null && ((PM.equals(component.getPackageName())
                                     && targets.contains(component.getClassName()))
-                                    || ANTI_FRAUD_SERVICE_COMPONENTS.contains(
-                                            component.flattenToShortString()))) {
+                                    || matchesComponent(ANTI_FRAUD_SERVICE_COMPONENTS, component))) {
                                 info("blocked anti-fraud service "
                                         + component.flattenToShortString());
                                 return defaultValue(method.getReturnType());
                             }
                             return chain.proceed();
-                        });
+                        }));
                 count++;
             }
         } catch (Throwable t) {
@@ -515,7 +542,7 @@ public final class MainHook extends XposedModule {
                 }
                 String id = "block-antifraud-callback-" + current.getName() + "-"
                         + method.getName() + "-" + method.getParameterCount();
-                hook(method).setId(id).intercept(chain -> {
+                hook(method).setId(id).intercept(guard(Feature.ANTI_FRAUD, chain -> {
                     Object target = chain.getThisObject();
                     if (isFraudComponent(target, targets)) {
                         info("blocked anti-fraud component " + target.getClass().getName()
@@ -523,7 +550,7 @@ public final class MainHook extends XposedModule {
                         return defaultValue(method.getReturnType());
                     }
                     return chain.proceed();
-                });
+                }));
                 hooked.add(method);
                 count++;
             }
@@ -560,7 +587,7 @@ public final class MainHook extends XposedModule {
                         && method.getParameterTypes()[1] == int.class
                         && method.getReturnType() == void.class) {
                     hook(method).setId("keep-phone-manager-antifraud-component-default")
-                            .intercept(chain -> {
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> {
                                 Object componentArg = chain.getArg(0);
                                 Object stateArg = chain.getArg(1);
                                 if (componentArg instanceof ComponentName
@@ -576,7 +603,7 @@ public final class MainHook extends XposedModule {
                                     }
                                 }
                                 return chain.proceed();
-                            });
+                            }));
                     count++;
                 }
             }
@@ -609,7 +636,7 @@ public final class MainHook extends XposedModule {
                         && method.getParameterCount() == 0
                         && method.getReturnType() == boolean.class) {
                     hook(method).setId("disable-phone-manager-antifraud-" + method.getName())
-                            .intercept(chain -> false);
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> false));
                     count++;
                 }
             }
@@ -629,13 +656,13 @@ public final class MainHook extends XposedModule {
                         && method.getParameterCount() == 1
                         && method.getReturnType() == boolean.class) {
                     hook(method).setId("disable-national-antifraud-" + name)
-                            .intercept(chain -> false);
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> false));
                     count++;
                 } else if (name.equals("b")
                         && method.getParameterCount() == 2
                         && method.getReturnType() == void.class) {
                     hook(method).setId("disable-national-antifraud-write")
-                            .intercept(chain -> null);
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> null));
                     count++;
                 }
             }
@@ -654,7 +681,7 @@ public final class MainHook extends XposedModule {
                         && method.getParameterCount() == 0
                         && method.getReturnType() == boolean.class) {
                     hook(method).setId("disable-blacklist-antifraud-sequence-support")
-                            .intercept(chain -> false);
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> false));
                     count++;
                 }
             }
@@ -671,7 +698,7 @@ public final class MainHook extends XposedModule {
                         && params[0] == Context.class
                         && params[1] == int.class) {
                     hook(method).setId("disable-suspected-fraud-number-intercept")
-                            .intercept(chain -> false);
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> false));
                     count++;
                 }
             }
@@ -692,13 +719,13 @@ public final class MainHook extends XposedModule {
                         && method.getParameterCount() == 0
                         && method.getReturnType() == void.class) {
                     hook(method).setId("hide-phone-ai-antifraud-setting")
-                            .intercept(chain -> null);
+                            .intercept(guard(Feature.HIDE_FRAUD_ENTRIES, chain -> null));
                     count++;
                 } else if (method.getName().equals("isShowAIVoiceDetectionToggle")
                         && method.getParameterCount() == 0
                         && method.getReturnType() == Boolean.class) {
                     hook(method).setId("hide-phone-ai-voice-detection-setting")
-                            .intercept(chain -> Boolean.FALSE);
+                            .intercept(guard(Feature.HIDE_FRAUD_ENTRIES, chain -> Boolean.FALSE));
                     count++;
                 }
             }
@@ -719,10 +746,10 @@ public final class MainHook extends XposedModule {
                         && method.getParameterCount() == 1
                         && method.getParameterTypes()[0] == telecomCall) {
                     hook(method).setId("disable-telecom-antifraud-center-call-intercept")
-                            .intercept(chain -> {
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> {
                                 info("prevented Telecom anti-fraud-center call interception");
                                 return null;
-                            });
+                            }));
                     count++;
                 }
             }
@@ -737,7 +764,7 @@ public final class MainHook extends XposedModule {
                         && method.getParameterCount() == 1
                         && method.getParameterTypes()[0] == Context.class) {
                     hook(method).setId("disable-telecom-antifraud-sequence-support")
-                            .intercept(chain -> Boolean.FALSE);
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> Boolean.FALSE));
                     count++;
                 }
             }
@@ -755,7 +782,7 @@ public final class MainHook extends XposedModule {
                         && params[1] == Bundle.class
                         && params[2] == Boolean.class) {
                     hook(method).setId("disable-telecom-ai-antifraud-events")
-                            .intercept(chain -> {
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> {
                                 Object event = chain.getArg(0);
                                 if ("android.telecom.event.AI_CALL_ANTI_FRAUD".equals(event)
                                         || "android.telecom.event.AI_voice_detect".equals(event)) {
@@ -763,7 +790,7 @@ public final class MainHook extends XposedModule {
                                     return null;
                                 }
                                 return chain.proceed();
-                            });
+                            }));
                     count++;
                 }
             }
@@ -783,7 +810,7 @@ public final class MainHook extends XposedModule {
                         && method.getParameterCount() == 0
                         && method.getReturnType() == boolean.class) {
                     hook(method).setId("disable-securityguard-antifraud-switch-" + method.getName())
-                            .intercept(chain -> false);
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> false));
                     count++;
                 }
             }
@@ -799,7 +826,7 @@ public final class MainHook extends XposedModule {
                         && method.getParameterCount() == 1
                         && method.getReturnType() == void.class) {
                     hook(method).setId("disable-securityguard-fraud-sequence-detection")
-                            .intercept(chain -> null);
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> null));
                     count++;
                 }
             }
@@ -819,7 +846,7 @@ public final class MainHook extends XposedModule {
                         && params[1] == String.class
                         && params[2] == Bundle.class) {
                     hook(method).setId("disable-securityguard-antifraud-app-events")
-                            .intercept(chain -> new Bundle());
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> new Bundle()));
                     count++;
                 }
             }
@@ -843,7 +870,7 @@ public final class MainHook extends XposedModule {
                         && params[1] == String.class
                         && params[2] == Bundle.class) {
                     hook(method).setId("disable-safecenter-antifraud-actions")
-                            .intercept(chain -> {
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> {
                                 Object action = chain.getArg(0);
                                 if (action instanceof String
                                         && ((String) action).startsWith("trigger_")) {
@@ -851,7 +878,7 @@ public final class MainHook extends XposedModule {
                                     return new Bundle();
                                 }
                                 return chain.proceed();
-                            });
+                            }));
                     count++;
                 }
             }
@@ -873,7 +900,7 @@ public final class MainHook extends XposedModule {
                         && method.getParameterCount() == 1
                         && method.getParameterTypes()[0] == Context.class) {
                     hook(method).setId("hide-securitypermission-antifraud-entry")
-                            .intercept(chain -> false);
+                            .intercept(guard(Feature.HIDE_FRAUD_ENTRIES, chain -> false));
                     count++;
                 }
             }
@@ -947,7 +974,7 @@ public final class MainHook extends XposedModule {
                 String name = m.getName();
                 if ((name.equals("setFirewall") || name.equals("legacySetFirewall")
                         || name.equals("setFirewallWithArgs")) && m.getParameterCount() >= 2) {
-                    hook(m).setId("allow-gms-fw-" + className + "-" + name).intercept(chain -> {
+                    hook(m).setId("allow-gms-fw-" + className + "-" + name).intercept(guard(Feature.GOOGLE_NETWORK, chain -> {
                         Object[] args = chain.getArgs().toArray();
                         if (args[0] instanceof Integer && googleUid((Integer) args[0])) {
                             args[1] = allowValue;
@@ -955,19 +982,19 @@ public final class MainHook extends XposedModule {
                             return chain.proceed(args);
                         }
                         return chain.proceed();
-                    });
+                    }));
                 } else if ((name.equals("destroySocket") || name.equals("destroySocketForProc")
                         || name.equals("forceStopNetDisbaleWhitelist")) && m.getParameterCount() >= 1) {
-                    hook(m).setId("keep-gms-socket-" + className + "-" + name).intercept(chain -> {
+                    hook(m).setId("keep-gms-socket-" + className + "-" + name).intercept(guard(Feature.GOOGLE_NETWORK, chain -> {
                         Object arg = chain.getArg(0);
                         if (arg instanceof Integer && googleUid((Integer) arg)) {
                             info("prevent socket destroy uid=" + arg);
                             return null;
                         }
                         return chain.proceed();
-                    });
+                    }));
                 } else if (name.equals("networkDisableWhiteList")) {
-                    hook(m).setId("gms-net-whitelist").intercept(chain -> {
+                    hook(m).setId("gms-net-whitelist").intercept(guard(Feature.GOOGLE_NETWORK, chain -> {
                         Object[] args = chain.getArgs().toArray();
                         if (args[0] instanceof List) {
                             List<Object> list = new ArrayList<>((List<?>) args[0]);
@@ -975,7 +1002,7 @@ public final class MainHook extends XposedModule {
                             args[0] = list;
                         }
                         return chain.proceed(args);
-                    });
+                    }));
                 }
             }
             info("OAppNetControl hooks ready " + className);
@@ -1019,7 +1046,7 @@ public final class MainHook extends XposedModule {
                     if ((name.equals("setUidPolicy") || name.equals("addUidPolicy")
                             || name.equals("setUidFirewallRule") || name.equals("setUidFirewallRuleUL"))
                             && m.getParameterCount() >= 2) {
-                        hook(m).setId("allow-google-mobile-" + className + "-" + name).intercept(chain -> {
+                        hook(m).setId("allow-google-mobile-" + className + "-" + name).intercept(guard(Feature.GOOGLE_NETWORK, chain -> {
                             Object[] args = chain.getArgs().toArray();
                             int pos = -1;
                             for (int i = 0; i < args.length; i++) {
@@ -1039,7 +1066,7 @@ public final class MainHook extends XposedModule {
                                 return chain.proceed(args);
                             }
                             return chain.proceed();
-                        });
+                        }));
                     }
                 }
                 info("metered policy hooks ready " + className);
@@ -1053,20 +1080,22 @@ public final class MainHook extends XposedModule {
             Class<?> c = Class.forName(className, false, cl);
             for (Method m : c.getDeclaredMethods()) {
                 if (m.getName().equals("setUidPolicy") && m.getParameterCount() >= 2) {
-                    hook(m).setId("allow-google-policy-" + className).intercept(chain -> {
+                    hook(m).setId("allow-google-policy-" + className).intercept(guard(Feature.GOOGLE_NETWORK, chain -> {
                         Object[] args = chain.getArgs().toArray();
                         if (args[0] instanceof Integer && googleUid((Integer) args[0])) {
                             args[1] = 0;
                         }
                         return chain.proceed(args);
-                    });
+                    }));
                 }
             }
         } catch (Throwable ignored) {
         }
     }
 
+    @SuppressLint("WrongConstant")
     void repair(Context context) {
+        if (!config.enabled(Feature.GOOGLE_NETWORK)) return;
         try {
             PackageManager pm = context.getPackageManager();
             for (String packageName : GOOGLE) {

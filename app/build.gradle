@@ -10,13 +10,20 @@ def releaseKeyPassword = System.getenv('ANDROID_KEY_PASSWORD')
 
 android {
  namespace 'com.gms.networkguard'
- compileSdk 35
+ enableKotlin false
+ compileSdk {
+  version = release(37) { minorApiLevel = 0 }
+ }
  defaultConfig {
   applicationId 'com.gms.networkguard'
   minSdk 30
   targetSdk 35
   versionCode releaseVersionCode
   versionName releaseVersionName
+ }
+ compileOptions {
+  sourceCompatibility JavaVersion.VERSION_17
+  targetCompatibility JavaVersion.VERSION_17
  }
  signingConfigs {
   release {
@@ -28,11 +35,30 @@ android {
  }
  buildTypes {
   release {
-   if (!releaseStoreFile) throw new GradleException('ANDROID_KEYSTORE_PATH is required for release builds')
-   signingConfig signingConfigs.release
+   if (releaseStoreFile) signingConfig signingConfigs.release
    minifyEnabled false
   }
  }
  packaging { resources { merges += 'META-INF/xposed/*' } }
+ testOptions {
+  unitTests.includeAndroidResources = true
+  unitTests.all {
+   jvmArgs '--add-exports=java.base/jdk.internal.access=ALL-UNNAMED'
+  }
+ }
 }
-dependencies { compileOnly 'io.github.libxposed:api:102.0.0' }
+tasks.configureEach {
+ if (name == 'preReleaseBuild') {
+  doFirst {
+   if (!releaseStoreFile) throw new GradleException('ANDROID_KEYSTORE_PATH is required for release builds')
+  }
+ }
+}
+dependencies {
+ compileOnly 'io.github.libxposed:api:102.0.0'
+ implementation 'io.github.libxposed:service:102.0.0'
+ testImplementation 'junit:junit:4.13.2'
+ testImplementation 'org.robolectric:robolectric:4.17'
+ testImplementation 'org.mockito:mockito-core:5.14.2'
+ testImplementation 'io.github.libxposed:api:102.0.0'
+}

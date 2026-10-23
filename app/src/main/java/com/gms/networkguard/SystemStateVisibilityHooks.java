@@ -1,5 +1,6 @@
 package com.gms.networkguard;
 
+import android.annotation.SuppressLint;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -18,6 +19,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+@SuppressLint("PrivateApi")
 final class SystemStateVisibilityHooks {
     private static final Set<Method> SETTINGS_HOOKS = ConcurrentHashMap.newKeySet();
     private final MainHook module;
@@ -118,7 +120,10 @@ final class SystemStateVisibilityHooks {
         if (count > 0) module.info("system state visibility settings hooks=" + count);
     }
 
+    @SuppressLint("QueryPermissionsNeeded")
     private int maskForCaller(int uid) {
+        int configured = module.visibilityMask();
+        if (configured == 0) return 0;
         if (uid % 100000 < 10000) return 0;
         Context context = MainHook.currentContext();
         if (context == null) return 0;
@@ -126,7 +131,7 @@ final class SystemStateVisibilityHooks {
         try {
             PackageManager manager = context.getPackageManager();
             String[] packages = manager.getPackagesForUid(uid);
-            if (packages == null || packages.length == 0) return StateVisibility.ALL;
+            if (packages == null || packages.length == 0) return configured;
             for (String name : packages) {
                 if (MainHook.GOOGLE.contains(name)) return 0;
                 ApplicationInfo info = manager.getApplicationInfo(name, 0);
@@ -141,7 +146,7 @@ final class SystemStateVisibilityHooks {
                                 | PackageManager.MATCH_DIRECT_BOOT_UNAWARE);
                 for (ResolveInfo service : services) {
                     if (service.serviceInfo != null && "android.permission.BIND_ACCESSIBILITY_SERVICE"
-                            .equals(service.serviceInfo.permission)) return StateVisibility.DEBUG;
+                            .equals(service.serviceInfo.permission)) return configured & StateVisibility.DEBUG;
                 }
             }
             Bundle args = new Bundle();
@@ -153,11 +158,11 @@ final class SystemStateVisibilityHooks {
                 for (String value : enabled.split(":")) {
                     ComponentName service = ComponentName.unflattenFromString(value);
                     if (service != null && Arrays.asList(packages).contains(service.getPackageName())) {
-                        return StateVisibility.DEBUG;
+                        return configured & StateVisibility.DEBUG;
                     }
                 }
             }
-            return StateVisibility.ALL;
+            return configured;
         } catch (Throwable error) {
             return 0;
         } finally {
