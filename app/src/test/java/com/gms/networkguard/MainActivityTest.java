@@ -117,8 +117,13 @@ public final class MainActivityTest {
         List<Button> buttons = new ArrayList<>();
         collect(activity.getWindow().getDecorView(), Button.class, buttons);
         buttons.removeIf(button -> button instanceof Switch);
-        assertEquals(1, buttons.size());
-        assertEquals(activity.getString(R.string.reload), buttons.get(0).getText().toString());
+        assertTrue(buttons.isEmpty());
+        List<TextView> labels = new ArrayList<>();
+        collect(activity.getWindow().getDecorView(), TextView.class, labels);
+        assertTrue(labels.stream().noneMatch(label -> label.getText().toString().contains("功能设置")
+                || label.getText().toString().contains("重新检查")
+                || label.getText().toString().contains("运行时处理")
+                || label.getText().toString().contains("不会关闭无障碍")));
     }
 
     @Test
@@ -135,15 +140,15 @@ public final class MainActivityTest {
     }
 
     @Test
-    public void uncertainSaveBlocksEditsAndRecheckRecovers() throws Exception {
+    public void uncertainSaveBlocksEditsAndReopeningRecovers() throws Exception {
         open();
         prefs.outcomes.add(false);
         prefs.outcomes.add(false);
         switches().get(Feature.HIDE_STATE).performClick();
         await(() -> message().equals(activity.getString(R.string.save_uncertain)));
         assertTrue(switches().values().stream().noneMatch(View::isEnabled));
-        Button reload = ReflectionHelpers.getField(activity, "reload");
-        reload.performClick();
+        controller.recreate();
+        activity = controller.get();
         await(() -> switches().values().stream().allMatch(View::isEnabled));
         assertTrue(switches().get(Feature.HIDE_STATE).isChecked());
         assertEquals(Feature.ALL, prefs.persisted);
@@ -264,6 +269,33 @@ public final class MainActivityTest {
         capture("night-narrow-font200");
     }
 
+    @Test
+    @Config(qualifiers = "zh-rCN-w320dp-h640dp-night-xhdpi")
+    public void feedbackDoesNotMoveControlsOrHideRecoveryAtLargeText() throws Exception {
+        RuntimeEnvironment.setFontScale(2f);
+        open();
+        TextView feedback = ReflectionHelpers.getField(activity, "message");
+        View activation = ReflectionHelpers.getField(activity, "activationCard");
+        int originalHeight = feedback.getHeight();
+        int originalTop = activation.getTop();
+        int[] messages = {R.string.saving, R.string.saved, R.string.save_failed,
+                R.string.save_uncertain, R.string.operation_timeout, R.string.load_failed,
+                R.string.connection_unavailable, R.string.worker_busy};
+        for (int resource : messages) {
+            ReflectionHelpers.callInstanceMethod(activity, "showMessage",
+                    ReflectionHelpers.ClassParameter.from(int.class, resource),
+                    ReflectionHelpers.ClassParameter.from(boolean.class, true));
+            shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(originalHeight, feedback.getHeight());
+            assertEquals(originalTop, activation.getTop());
+            assertTrue(feedback.getLineCount() <= 2);
+            assertEquals(feedback.getText().length(),
+                    feedback.getLayout().getLineEnd(feedback.getLineCount() - 1));
+            assertTrue(feedback.getLayout().getHeight() <= feedback.getHeight());
+        }
+        capture("night-narrow-font200-feedback");
+    }
+
     private void capture(String name) throws Exception {
         List<ScrollView> scrolls = new ArrayList<>();
         collect(activity.getWindow().getDecorView(), ScrollView.class, scrolls);
@@ -275,7 +307,7 @@ public final class MainActivityTest {
         assertTrue(page.getHeight() > 0);
         for (Switch control : switches().values()) {
             assertTrue(control.getWidth() <= page.getWidth());
-            assertTrue(control.getHeight() >= 80 * activity.getResources().getDisplayMetrics().density);
+            assertTrue(control.getHeight() >= 64 * activity.getResources().getDisplayMetrics().density);
             assertNotNull(control.getLayout());
             assertEquals(0, control.getLayout().getEllipsisCount(control.getLineCount() - 1));
             assertTrue(control.getLayout().getHeight() <= control.getHeight()

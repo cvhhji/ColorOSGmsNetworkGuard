@@ -6,7 +6,6 @@ import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.RippleDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -14,16 +13,18 @@ import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.AbsoluteSizeSpan;
 import android.text.style.ForegroundColorSpan;
-import android.text.style.StyleSpan;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
-import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.EnumMap;
 import java.util.concurrent.RejectedExecutionException;
@@ -38,10 +39,12 @@ public final class MainActivity extends Activity {
     private final EnumMap<Feature, Boolean> pending = new EnumMap<>(Feature.class);
     private GuardApplication application;
     private LinearLayout activationCard;
-    private TextView activationIcon;
+    private FrameLayout activationIconHolder;
+    private ImageView activationIcon;
+    private ProgressBar activationProgress;
     private TextView activationLabel;
     private TextView message;
-    private Button reload;
+    private String versionLabel;
     private XposedService session;
     private int confirmedMask = Feature.ALL;
     private volatile int generation;
@@ -100,12 +103,13 @@ public final class MainActivity extends Activity {
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
         int inset = getResources().getDimensionPixelSize(R.dimen.page_inset);
-        page.setPadding(inset, dp(24), inset, dp(32));
+        page.setPadding(inset, dp(24), inset, dp(24));
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
         TextView mark = text("G", 22, true, R.color.primary);
         mark.setGravity(Gravity.CENTER);
         mark.setBackground(round(R.color.primary_container, dp(16)));
+        mark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         header.addView(mark, new LinearLayout.LayoutParams(dp(52), dp(52)));
         LinearLayout headings = new LinearLayout(this);
         headings.setOrientation(LinearLayout.VERTICAL);
@@ -116,8 +120,17 @@ public final class MainActivity extends Activity {
         } catch (Exception error) {
             version = "—";
         }
-        headings.addView(text(getString(R.string.page_subtitle, version), 13, false,
-                R.color.text_secondary));
+        versionLabel = version;
+        message = text(versionLabel, 13, false, R.color.text_tertiary);
+        message.setMinLines(2);
+        message.setMaxLines(2);
+        message.setIncludeFontPadding(false);
+        message.setFallbackLineSpacing(false);
+        int feedbackLineHeight = Math.round(message.getTextSize() * 1.5f);
+        message.setLineHeight(feedbackLineHeight);
+        message.setHeight(feedbackLineHeight * 2);
+        message.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        headings.addView(message);
         LinearLayout.LayoutParams headingParams = new LinearLayout.LayoutParams(0, -2, 1);
         headingParams.setMarginStart(dp(14));
         header.addView(headings, headingParams);
@@ -125,58 +138,34 @@ public final class MainActivity extends Activity {
 
         activationCard = new LinearLayout(this);
         activationCard.setGravity(Gravity.CENTER_VERTICAL);
-        activationCard.setPadding(inset, dp(20), inset, dp(20));
+        activationCard.setPadding(inset, dp(18), inset, dp(18));
         activationCard.setMinimumHeight(getResources().getDimensionPixelSize(R.dimen.status_min_height));
         activationCard.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        activationIcon = text("…", 26, true, R.color.on_primary_container);
-        activationIcon.setGravity(Gravity.CENTER);
+        activationIconHolder = new FrameLayout(this);
+        activationIconHolder.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        activationIcon = new ImageView(this);
         activationIcon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        activationCard.addView(activationIcon, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        activationIconHolder.addView(activationIcon,
+                new FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER));
+        activationProgress = new ProgressBar(this);
+        activationIconHolder.addView(activationProgress,
+                new FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER));
+        activationCard.addView(activationIconHolder, new LinearLayout.LayoutParams(dp(52), dp(52)));
         activationLabel = text(getString(R.string.status_checking), 22, true, R.color.text_primary);
         LinearLayout.LayoutParams statusLabelParams = new LinearLayout.LayoutParams(0, -2, 1);
         statusLabelParams.setMarginStart(dp(16));
         activationCard.addView(activationLabel, statusLabelParams);
         LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(-1, -2);
-        statusParams.setMargins(0, dp(24), 0, dp(10));
+        statusParams.setMargins(0, dp(20), 0, dp(14));
         page.addView(activationCard, statusParams);
         setActivation(ActivationStatus.CHECKING);
 
-        reload = new Button(this);
-        reload.setText(R.string.reload);
-        reload.setAllCaps(false);
-        reload.setTextColor(color(R.color.primary));
-        reload.setTextSize(14);
-        reload.setMinHeight(dp(48));
-        reload.setBackground(new RippleDrawable(ColorStateList.valueOf(color(R.color.ripple)),
-                round(R.color.primary_container,
-                        getResources().getDimensionPixelSize(R.dimen.control_radius)), null));
-        reload.setOnClickListener(view -> refresh());
-        LinearLayout.LayoutParams reloadParams = new LinearLayout.LayoutParams(-2, dp(48));
-        reloadParams.gravity = Gravity.END;
-        page.addView(reload, reloadParams);
-
         LinearLayout network = section(page, R.string.section_network);
         addFeature(network, Feature.GOOGLE_NETWORK, R.string.network_title, R.string.network_summary);
-        LinearLayout fraud = section(page, R.string.section_fraud);
-        addFeature(fraud, Feature.ANTI_FRAUD, R.string.fraud_title, R.string.fraud_summary);
-        addFeature(fraud, Feature.HIDE_FRAUD_ENTRIES, R.string.entries_title, R.string.entries_summary);
-        LinearLayout visibility = section(page, R.string.section_visibility);
-        addFeature(visibility, Feature.HIDE_STATE, R.string.visibility_title, R.string.visibility_summary);
-        TextView visibilityNote = text(getString(R.string.visibility_note), 13, false, R.color.text_secondary);
-        visibilityNote.setPadding(0, dp(8), 0, dp(8));
-        visibility.addView(visibilityNote);
-
-        TextView help = text(getString(R.string.settings_note), 13, false, R.color.text_secondary);
-        help.setPadding(dp(4), dp(18), dp(4), dp(4));
-        page.addView(help);
-        message = text(getString(R.string.connection_waiting), 14, false, R.color.text_secondary);
-        message.setMinLines(2);
-        message.setPadding(dp(4), dp(8), dp(4), dp(8));
-        message.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        page.addView(message);
-        TextView footer = text(getString(R.string.footer), 12, false, R.color.text_tertiary);
-        footer.setPadding(dp(4), dp(8), dp(4), 0);
-        page.addView(footer);
+        LinearLayout system = section(page, R.string.section_system);
+        addFeature(system, Feature.ANTI_FRAUD, R.string.fraud_title, R.string.fraud_summary);
+        addFeature(system, Feature.HIDE_FRAUD_ENTRIES, R.string.entries_title, R.string.entries_summary);
+        addFeature(system, Feature.HIDE_STATE, R.string.visibility_title, R.string.visibility_summary);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -195,30 +184,26 @@ public final class MainActivity extends Activity {
     }
 
     private LinearLayout section(LinearLayout page, int label) {
-        TextView title = text(getString(label), 14, true, R.color.primary);
-        title.setPadding(dp(4), dp(22), 0, dp(10));
-        title.setAccessibilityHeading(true);
-        page.addView(title);
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         int inset = getResources().getDimensionPixelSize(R.dimen.card_inset);
-        card.setPadding(inset, dp(4), inset, dp(4));
+        card.setPadding(inset, dp(18), inset, dp(16));
         card.setBackground(round(R.color.card_background,
                 getResources().getDimensionPixelSize(R.dimen.card_radius)));
-        page.addView(card, new LinearLayout.LayoutParams(-1, -2));
+        TextView title = text(getString(label), 18, true, R.color.text_primary);
+        title.setPadding(0, 0, 0, dp(10));
+        title.setAccessibilityHeading(true);
+        card.addView(title);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.bottomMargin = dp(14);
+        page.addView(card, params);
         return card;
     }
 
     private void addFeature(LinearLayout card, Feature feature, int titleId, int summaryId) {
-        if (card.getChildCount() > 0) {
-            View divider = new View(this);
-            divider.setBackgroundColor(color(R.color.outline));
-            card.addView(divider, new LinearLayout.LayoutParams(-1, dp(1)));
-        }
         String title = getString(titleId);
         String summary = getString(summaryId);
         SpannableString label = new SpannableString(title + "\n" + summary);
-        label.setSpan(new StyleSpan(Typeface.BOLD), 0, title.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         int summarySize = Math.round(android.util.TypedValue.applyDimension(
                 android.util.TypedValue.COMPLEX_UNIT_SP, 13, getResources().getDisplayMetrics()));
         label.setSpan(new AbsoluteSizeSpan(summarySize), title.length() + 1, label.length(),
@@ -232,15 +217,17 @@ public final class MainActivity extends Activity {
         control.setTypeface(Typeface.DEFAULT);
         control.setGravity(Gravity.CENTER_VERTICAL);
         control.setSwitchPadding(dp(14));
-        control.setPadding(0, dp(16), 0, dp(16));
-        control.setMinHeight(dp(80));
-        control.setLineSpacing(dp(4), 1f);
+        control.setPadding(0, dp(9), 0, dp(9));
+        control.setMinHeight(dp(64));
+        control.setLineSpacing(dp(2), 1f);
         control.setShowText(false);
         control.setThumbTintList(new ColorStateList(
                 new int[][]{new int[]{-android.R.attr.state_enabled},
                         new int[]{android.R.attr.state_checked}, new int[]{}},
-                new int[]{color(R.color.control_disabled), color(R.color.primary), color(R.color.outline)}));
-        control.setTrackTintList(ColorStateList.valueOf(color(R.color.primary_container)));
+                new int[]{color(R.color.control_disabled), color(R.color.primary), color(R.color.switch_thumb)}));
+        control.setTrackTintList(new ColorStateList(
+                new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}},
+                new int[]{color(R.color.primary_container), color(R.color.switch_track)}));
         control.setOnCheckedChangeListener((button, checked) -> {
             if (!updating) change(feature, checked);
         });
@@ -296,7 +283,8 @@ public final class MainActivity extends Activity {
                         refreshing = false;
                         saveError = false;
                         setActivation(activation);
-                        showMessage(R.string.settings_ready, false);
+                        message.setText(versionLabel);
+                        message.setTextColor(color(R.color.text_tertiary));
                         renderSwitches();
                     });
                 } catch (RuntimeException error) {
@@ -414,45 +402,55 @@ public final class MainActivity extends Activity {
             control.setAlpha(control.isEnabled() ? 1f : 0.52f);
             control.setStateDescription(saving ? getString(R.string.state_saving) : null);
         }
-        if (reload != null) reload.setEnabled(!refreshing && pending.isEmpty());
         updating = false;
     }
 
     private void setActivation(ActivationStatus state) {
         int background = R.color.card_background;
         int foreground = R.color.text_secondary;
+        int iconBackground = R.color.switch_track;
+        int iconForeground = R.color.text_secondary;
         int label = R.string.status_checking;
-        String icon = "…";
+        int icon = R.drawable.ic_status_attention;
         if (state == ActivationStatus.ACTIVE) {
             background = R.color.primary_container;
             foreground = R.color.on_primary_container;
             label = R.string.status_active;
-            icon = "✓";
+            iconBackground = R.color.primary;
+            iconForeground = R.color.on_primary;
+            icon = R.drawable.ic_status_check;
         } else if (state == ActivationStatus.RESTART_REQUIRED) {
             background = R.color.warning_container;
             foreground = R.color.on_warning_container;
             label = R.string.status_restart;
-            icon = "!";
+            iconBackground = R.color.warning;
+            iconForeground = R.color.on_warning;
         } else if (state == ActivationStatus.INACTIVE) {
             background = R.color.error_container;
             foreground = R.color.on_error_container;
             label = R.string.status_inactive;
-            icon = "!";
+            iconBackground = R.color.error;
+            iconForeground = R.color.on_error;
         } else if (state == ActivationStatus.UNKNOWN) {
             label = R.string.status_unknown;
-            icon = "?";
         }
         activationCard.setBackground(round(background,
                 getResources().getDimensionPixelSize(R.dimen.status_radius)));
-        activationIcon.setText(icon);
-        activationIcon.setTextColor(color(foreground));
+        activationIconHolder.setBackground(round(iconBackground, dp(26)));
+        activationIcon.setImageResource(icon);
+        activationIcon.setImageTintList(ColorStateList.valueOf(color(iconForeground)));
+        activationIcon.setVisibility(state == ActivationStatus.CHECKING ? View.GONE : View.VISIBLE);
+        activationProgress.setIndeterminateTintList(ColorStateList.valueOf(color(iconForeground)));
+        activationProgress.setVisibility(state == ActivationStatus.CHECKING ? View.VISIBLE : View.GONE);
         activationLabel.setText(label);
         activationLabel.setTextColor(color(foreground));
     }
 
     private void showMessage(int resource, boolean error) {
+        boolean changed = !getString(resource).contentEquals(message.getText());
         message.setText(resource);
         message.setTextColor(color(error ? R.color.error : R.color.text_secondary));
+        if (error && changed) Toast.makeText(this, resource, Toast.LENGTH_SHORT).show();
     }
 
     private TextView text(String value, int size, boolean bold, int color) {

@@ -1,15 +1,20 @@
 <resources>
     <color name="primary">#51625C</color>
+    <color name="on_primary">#FFFFFF</color>
     <color name="primary_container">#D4E7DF</color>
     <color name="on_primary_container">#0F1E1A</color>
+    <color name="warning">#98621E</color>
+    <color name="on_warning">#FFFFFF</color>
     <color name="warning_container">#F5E7D2</color>
     <color name="on_warning_container">#4E361A</color>
     <color name="error">#BA1A1A</color>
+    <color name="on_error">#FFFFFF</color>
     <color name="error_container">#FFDAD6</color>
     <color name="on_error_container">#410002</color>
     <color name="page_background">#EFEDEC</color>
     <color name="card_background">#FAF9F7</color>
-    <color name="outline">#C7C6C5</color>
+    <color name="switch_thumb">#777776</color>
+    <color name="switch_track">#E3E2E1</color>
     <color name="text_primary">#1B1C1B</color>
     <color name="text_secondary">#464746</color>
     <color name="text_tertiary">#686A68</color>

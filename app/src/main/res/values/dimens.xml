@@ -3,6 +3,5 @@
     <dimen name="card_inset">20dp</dimen>
     <dimen name="card_radius">20dp</dimen>
     <dimen name="status_radius">24dp</dimen>
-    <dimen name="control_radius">14dp</dimen>
     <dimen name="status_min_height">96dp</dimen>
 </resources>
