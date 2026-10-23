@@ -60,6 +60,7 @@ final class SystemStateVisibilityHooks {
     }
 
     void installSettingsProvider(ClassLoader loader) {
+        installSettingsCache(loader);
         int count = 0;
         try {
             Class<?> provider = Class.forName(
@@ -78,8 +79,9 @@ final class SystemStateVisibilityHooks {
                                         || "LIST_system".equals(operation);
                                 boolean relevant = read && (operation.startsWith("LIST_")
                                         || StateVisibility.hiddenValue(key, StateVisibility.ALL) != null);
-                                int mask = relevant ? maskForCaller(Binder.getCallingUid()) : 0;
+                                int uid = Binder.getCallingUid();
                                 Object result = chain.proceed();
+                                int mask = relevant ? maskForCaller(uid) : 0;
                                 return mask != 0 && result instanceof Bundle
                                         ? StateVisibility.hideCallResult(operation, key, (Bundle) result, mask)
                                         : result;
@@ -118,6 +120,53 @@ final class SystemStateVisibilityHooks {
             module.err("system state visibility settings", error);
         }
         if (count > 0) module.info("system state visibility settings hooks=" + count);
+    }
+
+    private void installSettingsCache(ClassLoader loader) {
+        try {
+            Class<?> registry = Class.forName(
+                    "com.android.providers.settings.GenerationRegistry", false, loader);
+            Method increment = null;
+            Method export = null;
+            for (Method method : registry.getDeclaredMethods()) {
+                Class<?>[] params = method.getParameterTypes();
+                if (method.getName().equals("addGenerationData") && params.length >= 2
+                        && params.length <= 3 && params[0] == Bundle.class
+                        && (params[1] == int.class || params[1] == long.class)
+                        && (params.length == 2 || params[2] == String.class)) {
+                    Class<?>[] signature = params.length == 3
+                            ? new Class<?>[]{params[1], String.class} : new Class<?>[]{params[1]};
+                    try {
+                        increment = registry.getDeclaredMethod("incrementGeneration", signature);
+                        export = method;
+                        break;
+                    } catch (NoSuchMethodException ignored) {
+                    }
+                }
+            }
+            if (increment == null || export == null) {
+                throw new NoSuchMethodException("Settings generation API");
+            }
+            if (!SETTINGS_HOOKS.add(export)) return;
+            SettingsCacheInvalidator invalidator = new SettingsCacheInvalidator(increment);
+            boolean perKey = export.getParameterCount() == 3;
+            module.hook(export).setId("refresh-system-settings-cache").intercept(chain -> {
+                Object result = chain.proceed();
+                invalidator.record(chain.getThisObject(), (Number) chain.getArg(1),
+                        perKey ? (String) chain.getArg(2) : null);
+                return result;
+            });
+            module.onVisibilityChanged(() -> {
+                try {
+                    module.info("settings cache invalidated targets=" + invalidator.invalidate());
+                } catch (Throwable error) {
+                    module.err("settings cache invalidation", error);
+                }
+            });
+            module.info("settings generation cache hook ready perKey=" + perKey);
+        } catch (Throwable error) {
+            module.err("settings generation cache hook", error);
+        }
     }
 
     @SuppressLint("QueryPermissionsNeeded")

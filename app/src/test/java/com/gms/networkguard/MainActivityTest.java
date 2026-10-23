@@ -140,6 +140,21 @@ public final class MainActivityTest {
     }
 
     @Test
+    public void descriptionsKeepTheUserSuppliedWording() {
+        assertEquals("屏蔽已适配的系统反诈组件和号码规则，含国家反诈中心拦截",
+                application.getString(R.string.fraud_summary));
+        assertEquals("隐藏或阻止进入电话、权限管理的反诈设置，入口",
+                application.getString(R.string.entries_summary));
+        assertEquals("向普通应用隐藏无障碍、开发者选项与 ADB 状态；无障碍提供方保留真实服务名单",
+                application.getString(R.string.visibility_summary));
+        for (int resource : new int[]{R.string.network_summary, R.string.fraud_summary,
+                R.string.entries_summary, R.string.visibility_summary}) {
+            assertFalse(application.getString(resource).endsWith("。"));
+            assertFalse(application.getString(resource).endsWith("."));
+        }
+    }
+
+    @Test
     public void uncertainSaveBlocksEditsAndReopeningRecovers() throws Exception {
         open();
         prefs.outcomes.add(false);

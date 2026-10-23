@@ -192,6 +192,10 @@ public final class MainHook extends XposedModule {
         return config.visibilityMask();
     }
 
+    void onVisibilityChanged(Runnable listener) {
+        config.onVisibilityChanged(listener);
+    }
+
     void hookAndroidAntiFraudFlags(ClassLoader cl) {
         int flagHooks = 0;
         Set<Method> hooked = new HashSet<>();

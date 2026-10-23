@@ -59,6 +59,37 @@ public final class SettingsTest {
     }
 
     @Test
+    public void visibilityChangesRefreshCachesInBothDirectionsOnlyOnce() {
+        GuardConfig config = new GuardConfig();
+        TestPreferences prefs = new TestPreferences();
+        config.bind(prefs.preferences);
+        int[] refreshes = {0};
+        config.onVisibilityChanged(() -> refreshes[0]++);
+        prefs.cached = Feature.HIDE_STATE.update(Feature.ALL, false);
+        prefs.notifyChanged();
+        prefs.notifyChanged();
+        assertEquals(1, refreshes[0]);
+        prefs.cached = Feature.ALL;
+        prefs.notifyChanged();
+        assertEquals(2, refreshes[0]);
+    }
+
+    @Test
+    public void otherFeatureChangesDoNotInvalidateVisibilityCaches() {
+        GuardConfig config = new GuardConfig();
+        TestPreferences prefs = new TestPreferences();
+        config.bind(prefs.preferences);
+        int[] refreshes = {0};
+        config.onVisibilityChanged(() -> refreshes[0]++);
+        for (Feature feature : Feature.values()) {
+            if (feature == Feature.HIDE_STATE) continue;
+            prefs.cached = feature.update(prefs.cached, false);
+            prefs.notifyChanged();
+        }
+        assertEquals(0, refreshes[0]);
+    }
+
+    @Test
     public void unchangedValueDoesNotWrite() {
         RemoteSettings settings = new RemoteSettings();
         TestPreferences prefs = new TestPreferences();
