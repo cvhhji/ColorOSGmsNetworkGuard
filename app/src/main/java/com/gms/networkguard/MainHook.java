@@ -29,6 +29,7 @@ public final class MainHook extends XposedModule {
     static final String TAG = "GmsAntiFraudGuard";
     static final String PM = "com.coloros.phonemanager";
     static final String BLACKLIST = "com.oplus.blacklistapp";
+    static final String NUMBER_RECOGNITION = "com.ted.number";
     static final String SECURITY_GUARD = "com.coloros.securityguard";
     static final String SAFE_CENTER = "com.oplus.safecenter";
     static final String PERMISSION_CONTROLLER = "com.android.permissioncontroller";
@@ -53,11 +54,15 @@ public final class MainHook extends XposedModule {
     static final Set<String> ANTI_FRAUD_SERVICE_COMPONENTS = new HashSet<>(Arrays.asList(
             "com.google.android.gms/com.google.android.gms.bankscamwarning.services.BankScamCallDetectionService",
             "com.google.android.gms/com.google.android.gms.fraudprotect.service.CallDetectionService",
+            "com.google.android.gms/com.google.android.gms.bankscamwarning.services.InCallProtectionPersistentService",
+            "com.google.android.gms/com.google.android.gms.fraudprotect.service.SimStateMonitorService",
+            "com.ted.number/com.oplus.nationalantifraud.parse.ParseJobService",
             "android/com.android.ecm.EnhancedConfirmationCallTrackerService"
     ));
 
     static final Set<String> IN_CALL_ANTI_FRAUD_SERVICES = new HashSet<>(Arrays.asList(
             "com.google.android.gms/com.google.android.gms.bankscamwarning.services.BankScamCallDetectionService",
+            "com.google.android.gms/com.google.android.gms.fraudprotect.service.CallDetectionService",
             "android/com.android.ecm.EnhancedConfirmationCallTrackerService"
     ));
 
@@ -65,6 +70,17 @@ public final class MainHook extends XposedModule {
             "com.google.android.gms",
             "com.android.vending",
             "com.google.android.gsf"
+    ));
+
+    static final Set<String> ANTI_FRAUD_ACTIVITY_COMPONENTS = new HashSet<>(Arrays.asList(
+            "com.google.android.gms/com.google.android.gms.fraudprotect.settings.VerifiedCallerSettingsActivity",
+            "com.google.android.gms/com.google.android.gms.fraudprotect.settings.VerifiedCallerSettingsActivitySecurity",
+            "com.google.android.gms/com.google.android.gms.fraudprotect.settings.VerifiedCallerSettingsActivityAdvancedSettings",
+            "com.google.android.gms/com.google.android.gms.fraudprotect.settings.VerifiedCallerSettingsActivityLegacyAdvancedSecurity",
+            "com.google.android.gms/com.google.android.gms.fraudprotect.settings.VerifiedCallerSettingsActivityAdvancedSecurity",
+            "com.google.android.gms/com.google.android.gms.bankscamwarning.ui.BankWarningDialogActivity",
+            "com.google.android.gms/com.google.android.gms.bankscamwarning.ui.A11yAccessBlockedDialogActivity",
+            "com.google.android.gms/com.google.android.gms.bankscamwarning.ui.BankScamHatsActivity"
     ));
 
     static final String[] FRAUD_COMPONENTS = {
@@ -76,6 +92,10 @@ public final class MainHook extends XposedModule {
             "com.oplus.phonemanager.aivoicecalldetect.riskdetail.ui.AntiFraudSeqDetailsActivity",
             "com.oplus.phonemanager.aivoicecalldetect.antifraudrecords.view.SecurityEventStatisticsActivity",
             "com.oplus.phonemanager.aivoicecalldetect.feedback.FalseReportFeedbackActivity",
+            "com.oplus.phonemanager.aivoicecalldetect.report.AntiFraudReportHomeActivity",
+            "com.oplus.phonemanager.aivoicecalldetect.report.ReportTypeActivity",
+            "com.oplus.phonemanager.aivoicecalldetect.report.ReportFlowActivity",
+            "com.oplus.phonemanager.aivoicecalldetect.report.MyReportsActivity",
             "com.oplus.phonemanager.aivoicecalldetect.dialog.FraudRiskDialogActivity",
             "com.oplus.phonemanager.aivoicecalldetect.receiver.InCallRiskDialogReceiver",
             "com.oplus.phonemanager.aivoicecalldetect.trigger.VoipCallDetectTriggerReceiver",
@@ -117,6 +137,10 @@ public final class MainHook extends XposedModule {
         if (BLACKLIST.equals(pkg)) {
             hookNationalAntiFraud(cl);
             hookFraudNumberIntercept(cl);
+        }
+
+        if (NUMBER_RECOGNITION.equals(pkg)) {
+            new NumberRecognitionHooks(this).install(cl);
         }
 
         if ("com.android.phone".equals(pkg)) {
@@ -184,7 +208,7 @@ public final class MainHook extends XposedModule {
         }
     }
 
-    private Hooker guard(Feature feature, Hooker hooker) {
+    Hooker guard(Feature feature, Hooker hooker) {
         return chain -> config.enabled(feature) ? hooker.intercept(chain) : chain.proceed();
     }
 
@@ -424,7 +448,7 @@ public final class MainHook extends XposedModule {
                         || method.getParameterCount() != 1) {
                     continue;
                 }
-                hook(method).setId("block-phone-manager-antifraud-activity-start")
+                hook(method).setId("block-antifraud-activity-start")
                         .intercept(guard(Feature.HIDE_FRAUD_ENTRIES, chain -> {
                             Object request = chain.getArg(0);
                             android.content.Intent intent = requestIntent(request);
@@ -438,9 +462,9 @@ public final class MainHook extends XposedModule {
                 count++;
             }
         } catch (Throwable t) {
-            err("PhoneManager anti-fraud activity starts", t);
+            err("anti-fraud activity starts", t);
         }
-        info("PhoneManager anti-fraud activity start hooks=" + count);
+        info("anti-fraud activity start hooks=" + count);
     }
 
     android.content.Intent requestIntent(Object request) {
@@ -464,17 +488,19 @@ public final class MainHook extends XposedModule {
     boolean isFraudActivityIntent(android.content.Intent intent, Set<String> targets) {
         if (intent == null) return false;
         ComponentName component = intent.getComponent();
-        if (component != null && PM.equals(component.getPackageName())
-                && targets.contains(component.getClassName())) {
-            return true;
-        }
+        if (isFraudActivityComponent(component, targets)) return true;
         android.content.Intent selector = intent.getSelector();
         if (selector != null && selector != intent) {
             ComponentName selected = selector.getComponent();
-            return selected != null && PM.equals(selected.getPackageName())
-                    && targets.contains(selected.getClassName());
+            return isFraudActivityComponent(selected, targets);
         }
         return false;
+    }
+
+    private boolean isFraudActivityComponent(ComponentName component, Set<String> targets) {
+        return component != null && ((PM.equals(component.getPackageName())
+                && targets.contains(component.getClassName()))
+                || matchesComponent(ANTI_FRAUD_ACTIVITY_COMPONENTS, component));
     }
 
     void hookFraudServiceStarts(ClassLoader cl) {
@@ -628,7 +654,8 @@ public final class MainHook extends XposedModule {
                 "isSupportSecurePayFraudSeq",
                 "isAiVoiceSwitchOn",
                 "isAntiFraudSeqSwitchOn",
-                "isSmartAntiFraudSwitchOn"
+                "isSmartAntiFraudSwitchOn",
+                "isFraudReportSupport"
         };
         Set<String> targets = new HashSet<>(Arrays.asList(names));
         int count = 0;
@@ -639,8 +666,9 @@ public final class MainHook extends XposedModule {
                 if (targets.contains(method.getName())
                         && method.getParameterCount() == 0
                         && method.getReturnType() == boolean.class) {
+                    Feature control = phoneManagerFeatureControl(method.getName());
                     hook(method).setId("disable-phone-manager-antifraud-" + method.getName())
-                            .intercept(guard(Feature.ANTI_FRAUD, chain -> false));
+                            .intercept(guard(control, chain -> false));
                     count++;
                 }
             }
@@ -648,6 +676,11 @@ public final class MainHook extends XposedModule {
             err("PhoneManager anti-fraud", t);
         }
         info("PhoneManager anti-fraud hooks=" + count);
+    }
+
+    static Feature phoneManagerFeatureControl(String methodName) {
+        return "isFraudReportSupport".equals(methodName)
+                ? Feature.HIDE_FRAUD_ENTRIES : Feature.ANTI_FRAUD;
     }
 
     void hookNationalAntiFraud(ClassLoader cl) {

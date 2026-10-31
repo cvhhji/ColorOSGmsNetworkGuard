@@ -1,6 +1,7 @@
 package com.gms.networkguard;
 
 import android.content.ComponentName;
+import android.content.Intent;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ServiceInfo;
 
@@ -12,7 +13,10 @@ import org.robolectric.util.ReflectionHelpers;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import io.github.libxposed.api.XposedInterface.Chain;
 import io.github.libxposed.api.XposedInterface.Hooker;
@@ -93,6 +97,70 @@ public final class HookGateTest {
         assertFalse(MainHook.matchesComponent(MainHook.ANTI_FRAUD_SERVICE_COMPONENTS, null));
         assertFalse(MainHook.matchesComponent(MainHook.ANTI_FRAUD_SERVICE_COMPONENTS,
                 new ComponentName("com.google.android.gms", "com.google.android.gms.OtherService")));
+    }
+
+    @Test
+    public void newBackgroundTargetsDoNotExpandInCallFilteringToOtherServices() {
+        assertTrue(MainHook.ANTI_FRAUD_SERVICE_COMPONENTS.contains(
+                "com.ted.number/com.oplus.nationalantifraud.parse.ParseJobService"));
+        for (String name : List.of(
+                "com.google.android.gms/com.google.android.gms.bankscamwarning.services.InCallProtectionPersistentService",
+                "com.google.android.gms/com.google.android.gms.fraudprotect.service.SimStateMonitorService")) {
+            assertTrue(MainHook.ANTI_FRAUD_SERVICE_COMPONENTS.contains(name));
+            assertFalse(MainHook.IN_CALL_ANTI_FRAUD_SERVICES.contains(name));
+        }
+        assertTrue(MainHook.IN_CALL_ANTI_FRAUD_SERVICES.contains(
+                "com.google.android.gms/com.google.android.gms.fraudprotect.service.CallDetectionService"));
+        assertTrue(MainHook.ANTI_FRAUD_SERVICE_COMPONENTS.containsAll(MainHook.IN_CALL_ANTI_FRAUD_SERVICES));
+        assertFalse(MainHook.matchesComponent(MainHook.ANTI_FRAUD_SERVICE_COMPONENTS,
+                new ComponentName("com.ted.number", "com.ted.number.service.NumberService")));
+    }
+
+    @Test
+    public void reportActivitiesAreCoveredIncludingSelectorIntents() {
+        MainHook module = new MainHook();
+        Set<String> targets = new HashSet<>(Arrays.asList(MainHook.FRAUD_COMPONENTS));
+        assertEquals(26, targets.size());
+        for (String name : List.of("AntiFraudReportHomeActivity", "ReportTypeActivity",
+                "ReportFlowActivity", "MyReportsActivity")) {
+            String activity = "com.oplus.phonemanager.aivoicecalldetect.report." + name;
+            assertTrue(targets.contains(activity));
+            Intent intent = new Intent().setComponent(new ComponentName(MainHook.PM, activity));
+            assertTrue(module.isFraudActivityIntent(intent, targets));
+            Intent selector = new Intent();
+            selector.setSelector(intent);
+            assertTrue(module.isFraudActivityIntent(selector, targets));
+            intent.setComponent(new ComponentName("com.other.application", activity));
+            assertFalse(module.isFraudActivityIntent(intent, targets));
+        }
+    }
+
+    @Test
+    public void reportVisibilityFollowsEntrySwitchRatherThanServiceSwitch() {
+        assertEquals(Feature.HIDE_FRAUD_ENTRIES,
+                MainHook.phoneManagerFeatureControl("isFraudReportSupport"));
+        assertEquals(Feature.ANTI_FRAUD,
+                MainHook.phoneManagerFeatureControl("isAiFraudDetectSupport"));
+        assertEquals(Feature.ANTI_FRAUD,
+                MainHook.phoneManagerFeatureControl("isSupportAntiFraudSequence"));
+    }
+
+    @Test
+    public void googleAntiFraudEntriesAreBlockedWithoutMatchingOtherGoogleScreens() {
+        MainHook module = new MainHook();
+        Set<String> targets = new HashSet<>(Arrays.asList(MainHook.FRAUD_COMPONENTS));
+        for (String name : MainHook.ANTI_FRAUD_ACTIVITY_COMPONENTS) {
+            ComponentName component = ComponentName.unflattenFromString(name);
+            assertNotNull(component);
+            Intent intent = new Intent().setComponent(component);
+            assertTrue(module.isFraudActivityIntent(intent, targets));
+            Intent selector = new Intent();
+            selector.setSelector(intent);
+            assertTrue(module.isFraudActivityIntent(selector, targets));
+        }
+        assertFalse(module.isFraudActivityIntent(new Intent().setComponent(new ComponentName(
+                "com.google.android.gms", "com.google.android.gms.app.settings.GoogleSettingsActivity")), targets));
+        assertFalse(module.isFraudActivityIntent(null, targets));
     }
 
     private static ResolveInfo service(String flattened) {
