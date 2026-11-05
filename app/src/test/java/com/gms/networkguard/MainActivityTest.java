@@ -81,7 +81,8 @@ public final class MainActivityTest {
     private void open() throws Exception {
         controller = Robolectric.buildActivity(MainActivity.class).setup().visible();
         activity = controller.get();
-        await(() -> switches().size() == 4 && switches().values().stream().allMatch(View::isEnabled));
+        await(() -> switches().size() == Feature.values().length
+                && switches().values().stream().allMatch(View::isEnabled));
     }
 
     private EnumMap<Feature, Switch> switches() {
@@ -103,8 +104,9 @@ public final class MainActivityTest {
     }
 
     @Test
-    public void fourSwitchesAutoSaveWithoutCentralSaveButton() throws Exception {
+    public void fiveSwitchesAutoSaveWithoutCentralSaveButton() throws Exception {
         open();
+        assertEquals(5, switches().size());
         assertTrue(switches().values().stream().allMatch(Switch::isChecked));
         TextView status = ReflectionHelpers.getField(activity, "activationLabel");
         assertEquals(activity.getString(R.string.status_active), status.getText().toString());

@@ -10,7 +10,7 @@ final class RemoteSettings {
 
     int read(Object identity, SharedPreferences next) {
         if (owner != identity) {
-            int mask = next.getInt(Feature.MASK_KEY, Feature.ALL);
+            int mask = Feature.readMask(next);
             preferences = next;
             confirmed = mask;
             uncertain = false;
@@ -48,7 +48,8 @@ final class RemoteSettings {
 
     private boolean commit(int mask) {
         try {
-            return preferences.edit().putInt(Feature.MASK_KEY, mask).commit();
+            return preferences.edit().putInt(Feature.MASK_KEY, mask)
+                    .putInt(Feature.VERSION_KEY, Feature.VERSION).commit();
         } catch (RuntimeException error) {
             return false;
         }

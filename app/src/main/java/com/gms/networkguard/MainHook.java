@@ -30,6 +30,7 @@ public final class MainHook extends XposedModule {
     static final String PM = "com.coloros.phonemanager";
     static final String BLACKLIST = "com.oplus.blacklistapp";
     static final String NUMBER_RECOGNITION = "com.ted.number";
+    static final String SYSTEM_HELPER = "com.mobiletools.systemhelper";
     static final String SECURITY_GUARD = "com.coloros.securityguard";
     static final String SAFE_CENTER = "com.oplus.safecenter";
     static final String PERMISSION_CONTROLLER = "com.android.permissioncontroller";
@@ -141,6 +142,10 @@ public final class MainHook extends XposedModule {
 
         if (NUMBER_RECOGNITION.equals(pkg)) {
             new NumberRecognitionHooks(this).install(cl);
+        }
+
+        if (SYSTEM_HELPER.equals(pkg)) {
+            new SystemHelperHooks(this).install(cl);
         }
 
         if ("com.android.phone".equals(pkg)) {
@@ -773,68 +778,7 @@ public final class MainHook extends XposedModule {
     }
 
     void hookTelecomAntiFraud(ClassLoader cl) {
-        int count = 0;
-        try {
-            Class<?> telecomCall = Class.forName("com.android.server.telecom.Call", false, cl);
-            Class<?> manager = Class.forName("com.android.server.telecom.p5", false, cl);
-            for (Method method : manager.getDeclaredMethods()) {
-                if (method.getName().equals("C")
-                        && method.getReturnType() == void.class
-                        && method.getParameterCount() == 1
-                        && method.getParameterTypes()[0] == telecomCall) {
-                    hook(method).setId("disable-telecom-antifraud-center-call-intercept")
-                            .intercept(guard(Feature.ANTI_FRAUD, chain -> {
-                                info("prevented Telecom anti-fraud-center call interception");
-                                return null;
-                            }));
-                    count++;
-                }
-            }
-        } catch (Throwable t) {
-            err("Telecom anti-fraud-center call intercept", t);
-        }
-        try {
-            Class<?> support = Class.forName("com.android.server.telecom.oplus.m1", false, cl);
-            for (Method method : support.getDeclaredMethods()) {
-                if (method.getName().equals("b")
-                        && method.getReturnType() == Boolean.class
-                        && method.getParameterCount() == 1
-                        && method.getParameterTypes()[0] == Context.class) {
-                    hook(method).setId("disable-telecom-antifraud-sequence-support")
-                            .intercept(guard(Feature.ANTI_FRAUD, chain -> Boolean.FALSE));
-                    count++;
-                }
-            }
-        } catch (Throwable t) {
-            err("Telecom anti-fraud support", t);
-        }
-        try {
-            Class<?> events = Class.forName("com.android.server.telecom.z1", false, cl);
-            for (Method method : events.getDeclaredMethods()) {
-                Class<?>[] params = method.getParameterTypes();
-                if (method.getName().equals("t3")
-                        && method.getReturnType() == void.class
-                        && params.length == 3
-                        && params[0] == String.class
-                        && params[1] == Bundle.class
-                        && params[2] == Boolean.class) {
-                    hook(method).setId("disable-telecom-ai-antifraud-events")
-                            .intercept(guard(Feature.ANTI_FRAUD, chain -> {
-                                Object event = chain.getArg(0);
-                                if ("android.telecom.event.AI_CALL_ANTI_FRAUD".equals(event)
-                                        || "android.telecom.event.AI_voice_detect".equals(event)) {
-                                    info("blocked Telecom anti-fraud event " + event);
-                                    return null;
-                                }
-                                return chain.proceed();
-                            }));
-                    count++;
-                }
-            }
-        } catch (Throwable t) {
-            err("Telecom AI anti-fraud events", t);
-        }
-        info("Telecom anti-fraud hooks=" + count);
+        new TelecomAntiFraudHooks(this).install(cl);
     }
 
     void hookSecurityGuardAntiFraud(ClassLoader cl) {
@@ -859,10 +803,14 @@ public final class MainHook extends XposedModule {
                     "com.oplus.securityguard.antifraud.detect.engine.FraudDetectEngine",
                     false, cl);
             for (Method method : engine.getDeclaredMethods()) {
-                if (method.getName().equals("c")
-                        && method.getParameterCount() == 1
-                        && method.getReturnType() == void.class) {
+                if (isSecurityGuardEventMethod(method)) {
                     hook(method).setId("disable-securityguard-fraud-sequence-detection")
+                            .intercept(guard(Feature.ANTI_FRAUD, chain -> null));
+                    count++;
+                } else if (method.getName().equals("b")
+                        && method.getReturnType() == void.class
+                        && Arrays.equals(method.getParameterTypes(), new Class<?>[]{boolean.class})) {
+                    hook(method).setId("disable-securityguard-fraud-sequence-flush")
                             .intercept(guard(Feature.ANTI_FRAUD, chain -> null));
                     count++;
                 }
@@ -891,6 +839,15 @@ public final class MainHook extends XposedModule {
             err("SecurityGuard anti-fraud app events", t);
         }
         info("SecurityGuard anti-fraud hooks=" + count);
+    }
+
+    static boolean isSecurityGuardEventMethod(Method method) {
+        return method.getParameterCount() == 1 && method.getReturnType() == void.class
+                && securityGuardEventSignature(method.getName(), method.getParameterTypes()[0].getName());
+    }
+
+    static boolean securityGuardEventSignature(String name, String parameter) {
+        return ("c".equals(name) || "a".equals(name)) && "s1.d".equals(parameter);
     }
 
     void hookSafeCenterAntiFraud(ClassLoader cl) {

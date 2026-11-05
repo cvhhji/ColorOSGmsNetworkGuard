@@ -30,7 +30,7 @@ final class GuardConfig {
         SharedPreferences current = preferences;
         if (current == null) return Feature.ALL;
         try {
-            return current.getInt(Feature.MASK_KEY, Feature.ALL);
+            return Feature.readMask(current);
         } catch (RuntimeException error) {
             return Feature.ALL;
         }

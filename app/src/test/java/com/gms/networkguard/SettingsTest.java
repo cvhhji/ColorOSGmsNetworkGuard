@@ -6,9 +6,9 @@ import static org.junit.Assert.*;
 
 public final class SettingsTest {
     @Test
-    public void fourIndependentBitsCoverEveryCombination() {
-        assertEquals(4, Feature.values().length);
-        assertEquals(15, Feature.ALL);
+    public void fiveIndependentBitsCoverEveryCombination() {
+        assertEquals(5, Feature.values().length);
+        assertEquals(31, Feature.ALL);
         for (int mask = 0; mask <= Feature.ALL; mask++) {
             for (Feature feature : Feature.values()) {
                 assertEquals((mask & feature.bit) != 0, feature.enabled(mask));
@@ -38,7 +38,7 @@ public final class SettingsTest {
     }
 
     @Test
-    public void savesMergeAgainstConfirmedValuesAndPersistAllFour() {
+    public void savesMergeAgainstConfirmedValuesAndPersistAllFive() {
         RemoteSettings settings = new RemoteSettings();
         TestPreferences prefs = new TestPreferences();
         Object owner = new Object();
@@ -55,7 +55,45 @@ public final class SettingsTest {
             assertTrue(settings.change(owner, prefs.preferences, feature, true));
         }
         assertEquals(Feature.ALL, prefs.persisted);
-        assertEquals(8, prefs.commits);
+        assertEquals(10, prefs.commits);
+    }
+
+    @Test
+    public void legacyPreferencesKeepOriginalChoicesAndEnableReportingProtection() {
+        for (int legacy = 0; legacy < 16; legacy++) {
+            TestPreferences prefs = new TestPreferences();
+            prefs.version = 0;
+            prefs.persistedVersion = 0;
+            prefs.cached = legacy;
+            prefs.persisted = legacy;
+            GuardConfig config = new GuardConfig();
+            config.bind(prefs.preferences);
+            RemoteSettings settings = new RemoteSettings();
+            Object owner = new Object();
+            assertEquals(legacy | Feature.BLOCK_REPORTING.bit, config.mask());
+            assertEquals(config.mask(), settings.read(owner, prefs.preferences));
+            assertEquals(0, prefs.commits);
+            assertTrue(settings.change(owner, prefs.preferences, Feature.BLOCK_REPORTING, false));
+            assertEquals(legacy, prefs.persisted);
+            assertEquals(Feature.VERSION, prefs.persistedVersion);
+            assertEquals(legacy, new RemoteSettings().read(new Object(), prefs.preferences));
+            assertFalse(config.enabled(Feature.BLOCK_REPORTING));
+        }
+    }
+
+    @Test
+    public void failedMigrationWriteRestoresAllConfirmedFeatureChoices() {
+        TestPreferences prefs = new TestPreferences();
+        prefs.version = 0;
+        prefs.persistedVersion = 0;
+        prefs.cached = Feature.GOOGLE_NETWORK.bit;
+        prefs.persisted = prefs.cached;
+        prefs.outcomes.add(false);
+        prefs.outcomes.add(true);
+        RemoteSettings settings = new RemoteSettings();
+        assertFalse(settings.change(new Object(), prefs.preferences, Feature.BLOCK_REPORTING, false));
+        assertEquals(Feature.GOOGLE_NETWORK.bit | Feature.BLOCK_REPORTING.bit, prefs.persisted);
+        assertEquals(Feature.VERSION, prefs.persistedVersion);
     }
 
     @Test

@@ -166,6 +166,7 @@ public final class MainActivity extends Activity {
         addFeature(system, Feature.ANTI_FRAUD, R.string.fraud_title, R.string.fraud_summary);
         addFeature(system, Feature.HIDE_FRAUD_ENTRIES, R.string.entries_title, R.string.entries_summary);
         addFeature(system, Feature.HIDE_STATE, R.string.visibility_title, R.string.visibility_summary);
+        addFeature(system, Feature.BLOCK_REPORTING, R.string.reporting_title, R.string.reporting_summary);
 
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);

@@ -28,6 +28,16 @@ import static org.mockito.Mockito.*;
 @Config(sdk = 35)
 public final class HookGateTest {
     @Test
+    public void securityGuardEventMigrationDoesNotMatchSyntheticOrUnrelatedMethods() {
+        assertTrue(MainHook.securityGuardEventSignature("a", "s1.d"));
+        assertTrue(MainHook.securityGuardEventSignature("c", "s1.d"));
+        assertFalse(MainHook.securityGuardEventSignature("c", "java.lang.String"));
+        assertFalse(MainHook.securityGuardEventSignature("a", "java.lang.String"));
+        assertFalse(MainHook.securityGuardEventSignature("c", "boolean"));
+        assertFalse(MainHook.securityGuardEventSignature("b", "s1.d"));
+    }
+
+    @Test
     public void disabledFeaturesProceedToOriginalForEveryCombination() throws Throwable {
         MainHook module = new MainHook();
         GuardConfig config = ReflectionHelpers.getField(module, "config");
