@@ -11,7 +11,7 @@
     <string name="visibility_title">隐藏系统状态</string>
     <string name="visibility_summary">向普通应用隐藏无障碍、开发者选项与 ADB 状态；无障碍提供方保留真实服务名单</string>
     <string name="reporting_title">屏蔽信息上报</string>
-    <string name="reporting_summary">阻止 SystemHelper 采集、缓存和上报设备标识、定位及应用使用信息，不冻结或停用应用</string>
+    <string name="reporting_summary">阻止系统组件采集、缓存和上报设备标识、定位及应用使用信息</string>
     <string name="status_checking">正在检查…</string>
     <string name="status_active">已激活</string>
     <string name="status_inactive">未激活</string>
