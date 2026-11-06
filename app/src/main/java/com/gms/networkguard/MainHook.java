@@ -225,6 +225,14 @@ public final class MainHook extends XposedModule {
         config.onVisibilityChanged(listener);
     }
 
+    boolean reportingBlocked() {
+        return config.enabled(Feature.BLOCK_REPORTING);
+    }
+
+    void onReportingChanged(Runnable listener) {
+        config.onReportingChanged(listener);
+    }
+
     void hookAndroidAntiFraudFlags(ClassLoader cl) {
         int flagHooks = 0;
         Set<Method> hooked = new HashSet<>();

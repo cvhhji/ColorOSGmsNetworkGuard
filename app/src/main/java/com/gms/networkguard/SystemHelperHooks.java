@@ -2,6 +2,7 @@ package com.gms.networkguard;
 
 import android.content.Context;
 import android.content.Intent;
+import android.app.Application;
 import android.telephony.PreciseDataConnectionState;
 
 import java.lang.reflect.Constructor;
@@ -45,24 +46,35 @@ final class SystemHelperHooks {
                 nullResult("call diagnostics"), int.class, int.class);
         install(loader, "e1.a", "onPreciseDataConnectionStateChanged", void.class,
                 nullResult("data diagnostics"), PreciseDataConnectionState.class);
-        String receiver = "com.mobiletools.systemhelper.control.GetSignalInfoReceiver";
+        String receiver = SystemHelperSchedules.RECEIVER_PREFIX + "GetSignalInfoReceiver";
         for (String gate : new String[]{"c", "d"}) {
             install(loader, receiver, gate, boolean.class, falseResult("location gate"), Context.class);
         }
+        for (String name : SystemHelperSchedules.RECEIVERS) {
+            install(loader, SystemHelperSchedules.RECEIVER_PREFIX + name, "onReceive", void.class,
+                    scheduledReceiverHook(name), Context.class, Intent.class);
+        }
+        for (String name : new String[]{"a", "e", "f"}) {
+            install(loader, "g1.a", name, void.class, nullResult("alarm scheduling " + name),
+                    Context.class, long.class, long.class);
+        }
+        for (String name : new String[]{"b", "c", "d"}) {
+            install(loader, "g1.a", name, void.class, nullResult("alarm scheduling " + name),
+                    Context.class, long.class);
+        }
         try {
-            Method interval = Class.forName("g1.l", false, loader).getDeclaredMethod("m", Context.class);
-            Method schedule = Class.forName("g1.a", false, loader)
-                    .getDeclaredMethod("c", Context.class, long.class);
-            if (!signature(interval, long.class, Context.class)
-                    || !signature(schedule, void.class, Context.class, long.class)) {
-                throw new NoSuchMethodException("SystemHelper signal scheduling signature");
-            }
-            interval.setAccessible(true);
-            schedule.setAccessible(true);
-            install(loader, receiver, "onReceive", void.class, locationHook(interval, schedule),
-                    Context.class, Intent.class);
+            SystemHelperSchedules schedules = new SystemHelperSchedules(module,
+                    Class.forName("g1.a", false, loader), Class.forName("g1.l", false, loader));
+            install(loader, "com.mobiletools.systemhelper.control.DMApplication", "onCreate",
+                    void.class, chain -> {
+                        Object result = chain.proceed();
+                        if (MainHook.SYSTEM_HELPER.equals(Application.getProcessName())) {
+                            schedules.attach((Context) chain.getThisObject());
+                        }
+                        return result;
+                    });
         } catch (Throwable error) {
-            module.err("SystemHelper location scheduling", error);
+            module.err("SystemHelper alarm lifecycle", error);
         }
         module.info("SystemHelper reporting hooks=" + count);
     }
@@ -90,16 +102,8 @@ final class SystemHelperHooks {
         return protect("device information", chain -> constructor.newInstance());
     }
 
-    Hooker locationHook(Method interval, Method schedule) {
-        return protect("location collection", chain -> {
-            Object context = chain.getArg(0);
-            try {
-                schedule.invoke(null, context, interval.invoke(null, context));
-            } catch (Throwable error) {
-                module.err("SystemHelper preserve signal schedule", error);
-            }
-            return null;
-        });
+    Hooker scheduledReceiverHook(String receiver) {
+        return nullResult("scheduled receiver " + receiver);
     }
 
     private Hooker nullResult(String operation) {

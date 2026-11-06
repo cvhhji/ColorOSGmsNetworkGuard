@@ -7,7 +7,6 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
-import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
 import org.robolectric.util.ReflectionHelpers;
 
@@ -23,10 +22,6 @@ public final class SystemHelperHooksTest {
     private MainHook module;
     private TestPreferences preferences;
     private SystemHelperHooks hooks;
-    private static Context scheduledContext;
-    private static long scheduledInterval;
-    private static int schedules;
-    private static boolean schedulingFails;
 
     @Before
     public void prepare() {
@@ -37,9 +32,6 @@ public final class SystemHelperHooksTest {
         GuardConfig config = ReflectionHelpers.getField(module, "config");
         config.bind(preferences.preferences);
         hooks = new SystemHelperHooks(module);
-        schedules = 0;
-        schedulingFails = false;
-        scheduledContext = null;
     }
 
     @Test
@@ -74,41 +66,19 @@ public final class SystemHelperHooksTest {
     }
 
     @Test
-    public void blockedLocationKeepsOriginalAlarmIntervalAndOffRestoresReceiver() throws Throwable {
-        Hooker receiver = hooks.locationHook(SystemHelperHooksTest.class.getMethod("interval", Context.class),
-                SystemHelperHooksTest.class.getMethod("schedule", Context.class, long.class));
-        Context context = RuntimeEnvironment.getApplication();
-        Object original = new Object();
-        for (int mask = 0; mask <= Feature.ALL; mask++) {
-            preferences.cached = mask;
-            int before = schedules;
-            Chain chain = mock(Chain.class);
-            when(chain.getArg(0)).thenReturn(context);
-            when(chain.proceed()).thenReturn(original);
-            if (Feature.BLOCK_REPORTING.enabled(mask)) {
-                assertNull(receiver.intercept(chain));
-                assertEquals(before + 1, schedules);
-                assertSame(context, scheduledContext);
-                assertEquals(1800000L, scheduledInterval);
-                verify(chain, never()).proceed();
-            } else {
-                assertSame(original, receiver.intercept(chain));
-                assertEquals(before, schedules);
-                verify(chain).proceed();
+    public void scheduledReceiversDoNotRunOrRenewWhileBlockedAndOffRestoresOriginal() throws Throwable {
+        for (String name : SystemHelperSchedules.RECEIVERS) {
+            Hooker receiver = hooks.scheduledReceiverHook(name);
+            Object original = new Object();
+            for (int mask = 0; mask <= Feature.ALL; mask++) {
+                preferences.cached = mask;
+                Chain chain = mock(Chain.class);
+                when(chain.proceed()).thenReturn(original);
+                assertSame(Feature.BLOCK_REPORTING.enabled(mask) ? null : original,
+                        receiver.intercept(chain));
+                verify(chain, times(Feature.BLOCK_REPORTING.enabled(mask) ? 0 : 1)).proceed();
             }
         }
-    }
-
-    @Test
-    public void schedulingFailureNeverFallsBackToLocationCollection() throws Throwable {
-        schedulingFails = true;
-        Hooker receiver = hooks.locationHook(SystemHelperHooksTest.class.getMethod("interval", Context.class),
-                SystemHelperHooksTest.class.getMethod("schedule", Context.class, long.class));
-        Chain chain = mock(Chain.class);
-        when(chain.getArg(0)).thenReturn(RuntimeEnvironment.getApplication());
-        assertNull(receiver.intercept(chain));
-        verify(chain, never()).proceed();
-        verify(module).err(eq("SystemHelper preserve signal schedule"), any(Throwable.class));
     }
 
     @Test
@@ -117,24 +87,14 @@ public final class SystemHelperHooksTest {
                 void.class, Context.class, Intent.class));
         assertFalse(SystemHelperHooks.signature(Receiver.class.getMethod("onReceive", Object.class, Intent.class),
                 void.class, Context.class, Intent.class));
-        assertFalse(SystemHelperHooks.signature(SystemHelperHooksTest.class.getMethod("interval", Context.class),
+        assertFalse(SystemHelperHooks.signature(Information.class.getMethod("interval", Context.class),
                 boolean.class, Context.class));
-    }
-
-    public static long interval(Context context) {
-        return 1800000L;
-    }
-
-    public static void schedule(Context context, long interval) {
-        if (schedulingFails) throw new IllegalStateException("schedule unavailable");
-        scheduledContext = context;
-        scheduledInterval = interval;
-        schedules++;
     }
 
     public static final class Information {
         public String value;
         public Information() {}
+        public static long interval(Context context) { return 1800000L; }
     }
 
     public abstract static class Receiver {

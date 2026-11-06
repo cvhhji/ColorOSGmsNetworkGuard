@@ -9,17 +9,22 @@ final class GuardConfig {
     private volatile SharedPreferences preferences;
     private final CopyOnWriteArrayList<Runnable> visibilityListeners = new CopyOnWriteArrayList<>();
     private final AtomicBoolean previousVisibility = new AtomicBoolean(true);
+    private final CopyOnWriteArrayList<Runnable> reportingListeners = new CopyOnWriteArrayList<>();
+    private final AtomicBoolean previousReporting = new AtomicBoolean(true);
     private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener = (changed, key) -> {
         if (changed == preferences && (key == null || Feature.MASK_KEY.equals(key))) {
             updateVisibility();
+            updateReporting();
         }
     };
 
     void bind(SharedPreferences preferences) {
         this.preferences = preferences;
         previousVisibility.set(enabled(Feature.HIDE_STATE));
+        previousReporting.set(enabled(Feature.BLOCK_REPORTING));
         preferences.registerOnSharedPreferenceChangeListener(preferenceListener);
         updateVisibility();
+        updateReporting();
     }
 
     boolean isBound() {
@@ -46,6 +51,17 @@ final class GuardConfig {
 
     void onVisibilityChanged(Runnable listener) {
         visibilityListeners.add(listener);
+    }
+
+    void onReportingChanged(Runnable listener) {
+        reportingListeners.add(listener);
+    }
+
+    private void updateReporting() {
+        boolean enabled = enabled(Feature.BLOCK_REPORTING);
+        if (previousReporting.getAndSet(enabled) != enabled) {
+            for (Runnable listener : reportingListeners) listener.run();
+        }
     }
 
     private void updateVisibility() {
